@@ -404,34 +404,156 @@ button {
 }
 
 .team-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .team-card {
-  overflow: hidden;
-  border-radius: 22px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.team-photo {
-  height: 270px;
-  background-size: cover;
-  background-position: center;
+.team-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(217, 181, 127, 0.38);
+  box-shadow: 0 18px 26px rgba(0, 0, 0, 0.08);
+}
+
+.team-card__photo {
+  width: 92px;
+  height: 92px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(217, 181, 127, 0.2), rgba(201, 154, 90, 0.34));
+  border: 1px solid rgba(217, 181, 127, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.team-card__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.team-card__photo span {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #111111;
 }
 
 .team-card__body {
   display: grid;
   gap: 4px;
-  padding: 14px 16px 18px;
+  flex: 1;
+  min-width: 0;
 }
 
 .team-card__body strong {
   font-size: 1.1rem;
+  color: #f5efe7;
 }
 
 .team-card__body span {
   color: var(--muted);
+}
+
+.team-card__arrow {
+  font-size: 2rem;
+  color: var(--gold);
+  line-height: 1;
+}
+
+.barber-profile-panel {
+  width: min(560px, calc(100vw - 32px));
+  background: #14181d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  padding: 22px;
+  position: relative;
+  box-shadow: 0 28px 54px rgba(0, 0, 0, 0.3);
+}
+
+.barber-profile-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.barber-profile-photo {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(217, 181, 127, 0.2), rgba(201, 154, 90, 0.34));
+  border: 1px solid rgba(217, 181, 127, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.barber-profile-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.barber-profile-photo span {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #111111;
+}
+
+.barber-profile-role {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.barber-profile-bio {
+  margin: 0 0 18px;
+  color: #d9d1c6;
+  line-height: 1.7;
+}
+
+.barber-profile-services {
+  margin-bottom: 22px;
+}
+
+.barber-profile-services strong {
+  display: block;
+  margin-bottom: 10px;
+  color: #f5efe7;
+}
+
+.barber-profile-services ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.barber-profile-services li {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #d9d1c6;
+  font-size: 0.78rem;
 }
 
 .gallery-grid {
@@ -790,6 +912,10 @@ button {
   .modal-barber-grid,
   .modal-form-grid,
   .address-card {
+    grid-template-columns: 1fr;
+  }
+
+  .team-grid {
     grid-template-columns: 1fr;
   }
 
