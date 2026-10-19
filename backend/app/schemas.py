@@ -51,7 +51,7 @@ class AppointmentBase(BaseModel):
     service_id: int
     customer_name: str
     customer_phone: str
-    customer_email: str | None = None
+    customer_email: str = Field(..., min_length=1)
     starts_at: datetime
     ends_at: datetime
     notes: str | None = None

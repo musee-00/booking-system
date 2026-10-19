@@ -83,6 +83,16 @@ const fetchJson = async (url, options = {}) => {
   return { response, data }
 }
 
+const normalizeSlot = (slot) => (
+  slot
+    ? {
+        ...slot,
+        start: slot.start ? new Date(slot.start) : null,
+        end: slot.end ? new Date(slot.end) : null,
+      }
+    : null
+)
+
 export function CustomerPage() {
   const [services, setServices] = useState([])
   const [barbers, setBarbers] = useState([])
@@ -100,6 +110,7 @@ export function CustomerPage() {
     customer_phone: '',
     customer_email: '',
   })
+  const [formErrors, setFormErrors] = useState({})
   const [bookingMessage, setBookingMessage] = useState({ type: '', text: '' })
   const [customerNotice, setCustomerNotice] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -189,6 +200,27 @@ export function CustomerPage() {
 
   const selectedDaySlots = slotAvailability[selectedDate] || []
 
+  const validateBookingForm = (values = bookingForm) => {
+    const nextErrors = {}
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+    if (!values.customer_name.trim()) {
+      nextErrors.customer_name = 'Please enter your full name.'
+    }
+
+    if (!values.customer_phone.trim()) {
+      nextErrors.customer_phone = 'Please enter your phone number.'
+    }
+
+    if (!values.customer_email.trim()) {
+      nextErrors.customer_email = 'Please enter your email address.'
+    } else if (!emailPattern.test(values.customer_email.trim())) {
+      nextErrors.customer_email = 'Please enter a valid email address.'
+    }
+
+    return nextErrors
+  }
+
   const currentStepIsValid = useMemo(() => {
     if (currentStep === 0) {
       return Boolean(selectedBarber)
@@ -199,11 +231,12 @@ export function CustomerPage() {
     }
 
     if (currentStep === 2) {
-      return Boolean(bookingForm.customer_name.trim() && bookingForm.customer_phone.trim())
+      const nextErrors = validateBookingForm()
+      return Object.keys(nextErrors).length === 0
     }
 
     return true
-  }, [bookingForm.customer_name, bookingForm.customer_phone, currentStep, selectedBarber, selectedBarberId, selectedSlot])
+  }, [bookingForm.customer_name, bookingForm.customer_phone, bookingForm.customer_email, currentStep, selectedBarber, selectedBarberId, selectedSlot])
 
   const summaryBarber = selectedBarber?.name || 'Barber'
 
@@ -239,6 +272,7 @@ export function CustomerPage() {
     setSelectedBarberProfile(null)
     setSelectedSlot(null)
     setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
+    setFormErrors({})
     setBookingMessage({ type: '', text: '' })
     setCurrentStep(0)
     setSelectedDate(formatDateValue(new Date(Date.now() + 86400000)))
@@ -254,6 +288,7 @@ export function CustomerPage() {
     setSelectedBarberProfile(null)
     setSelectedSlot(null)
     setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
+    setFormErrors({})
     setBookingMessage({ type: '', text: '' })
     setCurrentStep(0)
     setSelectedDate(formatDateValue(new Date(Date.now() + 86400000)))
@@ -276,6 +311,17 @@ export function CustomerPage() {
     setCurrentStep((previous) => Math.min(previous + 1, WIZARD_STEPS.length - 1))
   }
 
+  const handleDetailsContinue = () => {
+    const errors = validateBookingForm()
+    setFormErrors(errors)
+
+    if (Object.keys(errors).length > 0) {
+      return
+    }
+
+    setCurrentStep(3)
+  }
+
   const handlePreviousStep = () => {
     setCurrentStep((previous) => Math.max(previous - 1, 0))
   }
@@ -287,7 +333,8 @@ export function CustomerPage() {
   }
 
   const handleSlotSelect = (slot) => {
-    setSelectedSlot(slot)
+    const normalizedSlot = normalizeSlot(slot)
+    setSelectedSlot(normalizedSlot)
     setCurrentStep(2)
   }
 
@@ -668,16 +715,29 @@ export function CustomerPage() {
                     <p className="empty-state">No available slots on this day.</p>
                   ) : (
                     <div className="slot-grid">
-                      {selectedDaySlots.map((slot, index) => (
-                        <button
-                          key={`${slot.barber_id}-${slot.start.toISOString()}-${index}`}
-                          type="button"
-                          className={`slot-button ${selectedSlot && selectedSlot.start.toISOString() === slot.start.toISOString() && selectedSlot.barber_id === slot.barber_id ? 'selected' : ''}`}
-                          onClick={() => handleSlotSelect(slot)}
-                        >
-                          <span>{formatTimeLabel(slot.start)} – {formatTimeLabel(slot.end)}</span>
-                        </button>
-                      ))}
+                      {selectedDaySlots.map((slot, index) => {
+                        const normalizedSlot = normalizeSlot(slot)
+                        const slotStartKey = normalizedSlot?.start instanceof Date ? normalizedSlot.start.toISOString() : ''
+                        const isSelected = Boolean(
+                          selectedSlot
+                          && normalizedSlot
+                          && selectedSlot.start instanceof Date
+                          && normalizedSlot.start instanceof Date
+                          && selectedSlot.start.toISOString() === slotStartKey
+                          && Number(selectedSlot.barber_id) === Number(normalizedSlot.barber_id),
+                        )
+
+                        return (
+                          <button
+                            key={`${normalizedSlot?.barber_id ?? slot.barber_id}-${slotStartKey || index}`}
+                            type="button"
+                            className={`slot-button ${isSelected ? 'selected' : ''}`}
+                            onClick={() => handleSlotSelect(normalizedSlot)}
+                          >
+                            <span>{formatTimeLabel(normalizedSlot?.start ?? slot.start)} – {formatTimeLabel(normalizedSlot?.end ?? slot.end)}</span>
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -701,9 +761,13 @@ export function CustomerPage() {
                     <input
                       type="text"
                       value={bookingForm.customer_name}
-                      onChange={(event) => setBookingForm({ ...bookingForm, customer_name: event.target.value })}
+                      onChange={(event) => {
+                        setBookingForm({ ...bookingForm, customer_name: event.target.value })
+                        setFormErrors((current) => ({ ...current, customer_name: '' }))
+                      }}
                       placeholder="Jane Smith"
                     />
+                    {formErrors.customer_name && <span className="field-error">{formErrors.customer_name}</span>}
                   </label>
 
                   <label>
@@ -711,25 +775,34 @@ export function CustomerPage() {
                     <input
                       type="tel"
                       value={bookingForm.customer_phone}
-                      onChange={(event) => setBookingForm({ ...bookingForm, customer_phone: event.target.value })}
+                      onChange={(event) => {
+                        setBookingForm({ ...bookingForm, customer_phone: event.target.value })
+                        setFormErrors((current) => ({ ...current, customer_phone: '' }))
+                      }}
                       placeholder="+46 70 123 45 67"
                     />
+                    {formErrors.customer_phone && <span className="field-error">{formErrors.customer_phone}</span>}
                   </label>
 
                   <label className="full-width">
                     Email
                     <input
                       type="email"
+                      required
                       value={bookingForm.customer_email}
-                      onChange={(event) => setBookingForm({ ...bookingForm, customer_email: event.target.value })}
+                      onChange={(event) => {
+                        setBookingForm({ ...bookingForm, customer_email: event.target.value })
+                        setFormErrors((current) => ({ ...current, customer_email: '' }))
+                      }}
                       placeholder="jane@example.com"
                     />
+                    {formErrors.customer_email && <span className="field-error">{formErrors.customer_email}</span>}
                   </label>
                 </div>
 
                 <div className="booking-actions">
                   <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
-                  <button type="button" className="primary-button" onClick={handleNextStep} disabled={!currentStepIsValid}>Continue</button>
+                  <button type="button" className="primary-button" onClick={handleDetailsContinue} disabled={!currentStepIsValid}>Continue</button>
                 </div>
               </div>
             )}

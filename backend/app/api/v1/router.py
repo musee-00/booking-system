@@ -1,7 +1,11 @@
+import logging
+import smtplib
 from datetime import date as date_type, datetime, time, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
+from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,9 +25,134 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1")
+logger = logging.getLogger(__name__)
 STOCKHOLM_TZ = ZoneInfo("Europe/Stockholm")
 DAY_START_HOUR = 9
 DAY_END_HOUR = 18
+
+
+def format_price_kr(value: str | int | float | Decimal) -> str:
+    price = Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return f"{int(price)} kr"
+
+
+def format_booking_time_range(starts_at: datetime, ends_at: datetime) -> str:
+    stockholm_start = starts_at.astimezone(STOCKHOLM_TZ)
+    stockholm_end = ends_at.astimezone(STOCKHOLM_TZ)
+    return f"{stockholm_start.strftime('%H:%M')}–{stockholm_end.strftime('%H:%M')}"
+
+
+def send_booking_confirmation_email(
+    customer_email: str,
+    barber_name: str,
+    service_name: str,
+    starts_at: datetime,
+    ends_at: datetime,
+    price: str,
+) -> None:
+    if not customer_email:
+        return
+
+    starts_at_stockholm = starts_at.astimezone(STOCKHOLM_TZ)
+    ends_at_stockholm = ends_at.astimezone(STOCKHOLM_TZ)
+    date_label = starts_at_stockholm.strftime("%A %d %B %Y")
+    time_range = format_booking_time_range(starts_at, ends_at)
+    formatted_price = format_price_kr(price)
+
+    plain_text = "\n".join(
+        [
+            f"Hi there,",
+            "",
+            f"Your booking at {settings.shop_name} has been confirmed.",
+            "",
+            f"Service: {service_name}",
+            f"Barber: {barber_name}",
+            f"Date: {date_label}",
+            f"Time: {time_range}",
+            f"Price: {formatted_price}",
+            f"Address: {settings.shop_address}",
+            "",
+            "We look forward to seeing you.",
+            settings.shop_name,
+        ]
+    )
+
+    html = f"""
+    <html>
+      <body style="margin:0; padding:0; background-color:#f5f1eb; font-family:Arial, sans-serif; color:#1f2937;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f1eb; padding:32px 16px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#ffffff; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb;">
+                <tr>
+                  <td style="background-color:#1f2937; padding:24px 32px; color:#ffffff;">
+                    <div style="font-size:28px; font-weight:bold; letter-spacing:0.04em;">{settings.shop_name}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:32px;">
+                    <p style="margin:0 0 16px; font-size:16px;">Hi there,</p>
+                    <p style="margin:0 0 24px; font-size:16px; line-height:1.6;">Your booking has been confirmed. We’re looking forward to welcoming you.</p>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:0 0 24px;">
+                      <tr>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Service</strong></td>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{service_name}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Barber</strong></td>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{barber_name}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Date</strong></td>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{date_label}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Time</strong></td>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{time_range}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Price</strong></td>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{formatted_price}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0;"><strong>Address</strong></td>
+                        <td style="padding:10px 0; text-align:right;">{settings.shop_address}</td>
+                      </tr>
+                    </table>
+                    <p style="margin:0; font-size:14px; color:#4b5563;">If you need to change your booking, please contact us directly.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background-color:#faf7f4; padding:20px 32px; color:#374151; font-size:14px; border-top:1px solid #e5e7eb;">
+                    {settings.shop_name} • {settings.shop_address}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+
+    message = EmailMessage()
+    message["Subject"] = f"Booking confirmed — {service_name}"
+    message["From"] = settings.smtp_from_email
+    message["To"] = customer_email
+    message.set_content(plain_text)
+    message.add_alternative(html, subtype="html")
+
+    try:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+            if settings.smtp_use_tls:
+                smtp.starttls()
+                if settings.smtp_username and settings.smtp_password:
+                    smtp.login(settings.smtp_username, settings.smtp_password)
+            elif settings.smtp_username and settings.smtp_password:
+                smtp.login(settings.smtp_username, settings.smtp_password)
+            smtp.send_message(message)
+    except Exception:
+        logger.exception("Failed to send booking confirmation email to %s", customer_email)
 
 
 def ensure_stockholm_datetime(value: datetime) -> datetime:
@@ -132,7 +261,11 @@ def list_availability(
 
 
 @router.post("/appointments", response_model=AppointmentRead)
-def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get_db)) -> Appointment:
+def create_appointment(
+    appointment: AppointmentCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> Appointment:
     if appointment.ends_at <= appointment.starts_at:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -200,6 +333,16 @@ def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get
     db.add(db_appointment)
     db.commit()
     db.refresh(db_appointment)
+
+    background_tasks.add_task(
+        send_booking_confirmation_email,
+        customer_email=db_appointment.customer_email,
+        barber_name=barber.name,
+        service_name=service.name,
+        starts_at=db_appointment.starts_at,
+        ends_at=db_appointment.ends_at,
+        price=service.price,
+    )
     return db_appointment
 
 

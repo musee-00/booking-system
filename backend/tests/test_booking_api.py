@@ -1,13 +1,21 @@
 from datetime import date, datetime, timedelta, timezone
+from unittest.mock import patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def mock_email_sending():
+    with patch("app.api.v1.router.send_booking_confirmation_email") as mock_send:
+        yield mock_send
 
 
 def test_create_and_list_services() -> None:
@@ -94,6 +102,46 @@ def test_create_and_list_appointments() -> None:
     assert list_response.status_code == 200, list_response.text
     appointments = list_response.json()
     assert any(item["customer_name"] == payload["customer_name"] for item in appointments)
+
+
+def test_send_booking_confirmation_email_to_customer(mock_email_sending) -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-email-{uuid4().hex[:8]}@example.com",
+            "phone": "+46700000011",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Confirmation Email Test {uuid4().hex[:8]}",
+            "duration_minutes": 60,
+            "price": "250.00",
+            "description": "Optional description",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    payload = {
+        "barber_id": barber_id,
+        "service_id": service_id,
+        "customer_name": "Dana Eriksson",
+        "customer_phone": "+46700000012",
+        "customer_email": "dana@example.com",
+        "starts_at": "2026-10-22T10:00:00",
+        "ends_at": "2026-10-22T11:00:00",
+        "notes": "Needs a clean fade",
+    }
+
+    response = client.post("/api/v1/appointments", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert mock_email_sending.call_count == 1
+    assert mock_email_sending.call_args.kwargs["customer_email"] == "dana@example.com"
 
 
 def test_rejects_overlapping_appointments_for_same_barber() -> None:
