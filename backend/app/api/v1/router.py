@@ -1,12 +1,15 @@
-from datetime import datetime
+import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.database import get_db
 from app.models import Appointment, Barber, Service
 from app.schemas import (
+    AdminLoginRequest,
+    AdminLoginResponse,
     AppointmentCreate,
     AppointmentRead,
     BarberCreate,
@@ -16,6 +19,7 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1")
+ACTIVE_ADMIN_TOKENS: set[str] = set()
 
 
 @router.get("/health")
@@ -92,3 +96,39 @@ def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get
     db.commit()
     db.refresh(db_appointment)
     return db_appointment
+
+
+@router.post("/admin/login", response_model=AdminLoginResponse)
+def admin_login(payload: AdminLoginRequest) -> AdminLoginResponse:
+    if payload.username != settings.admin_username or payload.password != settings.admin_password:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials.")
+
+    token = f"admin-token-{secrets.token_urlsafe(24)}"
+    ACTIVE_ADMIN_TOKENS.add(token)
+    return AdminLoginResponse(token=token)
+
+
+@router.patch("/appointments/{appointment_id}/cancel", response_model=AppointmentRead)
+def cancel_appointment(
+    appointment_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: Session = Depends(get_db),
+) -> Appointment:
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token.")
+
+    token = authorization.split(" ", 1)[1].strip()
+    if token not in ACTIVE_ADMIN_TOKENS:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired admin token.")
+
+    appointment = db.get(Appointment, appointment_id)
+    if appointment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
+
+    if appointment.status == "cancelled":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Appointment is already cancelled.")
+
+    appointment.status = "cancelled"
+    db.commit()
+    db.refresh(appointment)
+    return appointment

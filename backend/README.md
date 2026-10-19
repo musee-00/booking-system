@@ -29,3 +29,7 @@ This is the FastAPI backend for the booking system.
 
 - API docs: http://localhost:8000/docs
 - Health endpoint: http://localhost:8000/api/v1/health
+
+## Double-booking protection
+
+“Double bookings are prevented on two levels: the API checks for overlapping time ranges and returns 409 Conflict, and a PostgreSQL exclusion constraint guarantees it at the data level. The database constraint also handles race conditions when two bookings arrive at the same time.”

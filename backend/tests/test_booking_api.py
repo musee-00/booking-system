@@ -73,14 +73,103 @@ def test_create_and_list_appointments() -> None:
     appointments = list_response.json()
     assert any(item["customer_name"] == payload["customer_name"] for item in appointments)
 
+
+def test_rejects_overlapping_appointments_for_same_barber() -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-overlap-{uuid4().hex[:8]}@example.com",
+            "phone": "+46700000000",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Beard Styling {uuid4().hex[:8]}",
+            "duration_minutes": 45,
+            "price": "220.00",
+            "description": "Precision beard styling",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    first_payload = {
+        "barber_id": barber_id,
+        "service_id": service_id,
+        "customer_name": "Alice Andersson",
+        "customer_phone": "+46700000000",
+        "customer_email": "alice@example.com",
+        "starts_at": "2026-10-21T09:00:00",
+        "ends_at": "2026-10-21T09:45:00",
+    }
+
+    first_response = client.post("/api/v1/appointments", json=first_payload)
+    assert first_response.status_code == 200, first_response.text
+
     overlapping_response = client.post(
         "/api/v1/appointments",
         json={
-            **payload,
+            **first_payload,
             "customer_name": "Bob Berman",
             "customer_email": "bob@example.com",
-            "starts_at": "2026-10-20T10:30:00",
-            "ends_at": "2026-10-20T11:30:00",
+            "starts_at": "2026-10-21T09:30:00",
+            "ends_at": "2026-10-21T10:15:00",
         },
     )
+
     assert overlapping_response.status_code == 409, overlapping_response.text
+    assert "overlapping" in overlapping_response.json()["detail"].lower()
+
+
+def test_admin_can_login_and_cancel_appointment() -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-admin-{uuid4().hex[:8]}@example.com",
+            "phone": "+46711111111",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Premium Fade {uuid4().hex[:8]}",
+            "duration_minutes": 90,
+            "price": "420.00",
+            "description": "Modern fade and finish",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    appointment_payload = {
+        "barber_id": barber_id,
+        "service_id": service_id,
+        "customer_name": "Charlotte Holm",
+        "customer_phone": "+46700000011",
+        "customer_email": "charlotte@example.com",
+        "starts_at": "2026-10-22T15:00:00",
+        "ends_at": "2026-10-22T16:30:00",
+    }
+
+    appointment_response = client.post("/api/v1/appointments", json=appointment_payload)
+    assert appointment_response.status_code == 200, appointment_response.text
+    appointment_id = appointment_response.json()["id"]
+
+    login_response = client.post(
+        "/api/v1/admin/login",
+        json={"username": "admin", "password": "admin123"},
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["token"]
+
+    cancel_response = client.patch(
+        f"/api/v1/appointments/{appointment_id}/cancel",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert cancel_response.status_code == 200, cancel_response.text
+    assert cancel_response.json()["status"] == "cancelled"

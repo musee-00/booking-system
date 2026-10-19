@@ -63,3 +63,12 @@ class AppointmentRead(AppointmentBase):
     id: int
     status: str
     created_at: datetime
+
+
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    token: str
