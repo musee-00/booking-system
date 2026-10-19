@@ -40,39 +40,47 @@ export function AdminLoginPage() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Admin access</p>
-          <h1>North Street Studio</h1>
-        </div>
-      </header>
-
-      <main className="layout single-column">
-        <section className="panel admin-panel">
-          <div className="panel-header">
-            <h2>Admin login</h2>
-            <span className="badge alt">JWT login</span>
+    <div className="admin-page">
+      <div className="admin-shell">
+        <header className="admin-header">
+          <div className="admin-brand">
+            <div className="brand-mark">NS</div>
+            <div>
+              <p className="admin-eyebrow">Admin access</p>
+              <h1>North Street Studio</h1>
+            </div>
           </div>
+        </header>
 
-          <form onSubmit={handleAdminLogin} className="admin-form">
-            <label>
-              Username
-              <input value={adminUsername} onChange={(event) => setAdminUsername(event.target.value)} />
-            </label>
-            <label>
-              Password
-              <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} />
-            </label>
-            {adminMessage.text && (
-              <p className={`status-message ${adminMessage.type}`}>{adminMessage.text}</p>
-            )}
-            <button type="submit" className="primary-button secondary">
-              Log in
-            </button>
-          </form>
-        </section>
-      </main>
+        <main className="admin-main">
+          <section className="admin-panel">
+            <div className="admin-panel__header">
+              <div>
+                <p className="admin-kicker">Welcome</p>
+                <h2>Admin login</h2>
+              </div>
+              <span className="admin-chip">JWT login</span>
+            </div>
+
+            <form onSubmit={handleAdminLogin} className="admin-form">
+              <label>
+                Username
+                <input value={adminUsername} onChange={(event) => setAdminUsername(event.target.value)} />
+              </label>
+              <label>
+                Password
+                <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} />
+              </label>
+              {adminMessage.text && (
+                <p className={`admin-status-message ${adminMessage.type}`}>{adminMessage.text}</p>
+              )}
+              <button type="submit" className="admin-primary-button">
+                Log in
+              </button>
+            </form>
+          </section>
+        </main>
+      </div>
     </div>
   )
 }

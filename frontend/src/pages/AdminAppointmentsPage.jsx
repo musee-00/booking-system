@@ -35,6 +35,35 @@ export function AdminAppointmentsPage() {
   const [services, setServices] = useState([])
   const [barbers, setBarbers] = useState([])
   const [appointments, setAppointments] = useState([])
+  const [showCancelled, setShowCancelled] = useState(false)
+
+  const getStatusLabel = (appointment) => {
+    if (appointment.status === 'cancelled') {
+      return 'Cancelled'
+    }
+
+    const startsAt = new Date(appointment.starts_at)
+    if (startsAt < new Date()) {
+      return 'Completed'
+    }
+
+    return 'Confirmed'
+  }
+
+  const isPastAppointment = (appointment) => new Date(appointment.starts_at) < new Date()
+
+  const visibleAppointments = [...appointments]
+    .filter((appointment) => (showCancelled ? true : appointment.status !== 'cancelled'))
+    .sort((left, right) => {
+      const leftUpcoming = !isPastAppointment(left)
+      const rightUpcoming = !isPastAppointment(right)
+
+      if (leftUpcoming !== rightUpcoming) {
+        return leftUpcoming ? -1 : 1
+      }
+
+      return new Date(left.starts_at) - new Date(right.starts_at)
+    })
 
   const loadServices = async () => {
     const { response, data } = await fetchJson(`${API_BASE}/services`)
@@ -98,75 +127,82 @@ export function AdminAppointmentsPage() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Admin</p>
-          <h1>North Street Studio</h1>
-        </div>
-      </header>
-
-      <main className="layout single-column">
-        <section className="panel admin-panel">
-          <div className="panel-header">
-            <h2>Appointments</h2>
-            <div className="admin-actions">
-              <span className="badge alt">Signed in as {adminUsername}</span>
-              <button className="secondary-button" onClick={handleLogout} type="button">
-                Log out
-              </button>
+    <div className="admin-page">
+      <div className="admin-shell">
+        <header className="admin-header">
+          <div className="admin-brand">
+            <div className="brand-mark">NS</div>
+            <div>
+              <p className="admin-eyebrow">Admin</p>
+              <h1>North Street Studio</h1>
             </div>
           </div>
 
-          {adminMessage.text && (
-            <p className={`status-message ${adminMessage.type}`}>{adminMessage.text}</p>
-          )}
-
-          <div className="appointments-list">
-            {appointments.length === 0 ? (
-              <p className="empty-state">No appointments yet.</p>
-            ) : (
-              appointments.map((appointment) => {
-                const service = services.find((item) => Number(item.id) === Number(appointment.service_id))
-                const barber = barbers.find((item) => Number(item.id) === Number(appointment.barber_id))
-
-                return (
-                  <div key={appointment.id} className="appointment-card">
-                    <div>
-                      <strong>{appointment.customer_name}</strong>
-                      <p>
-                        {service ? service.name : 'Service'} · {barber ? barber.name : 'Barber'}
-                      </p>
-                      <p>
-                        {formatDateLabel(appointment.starts_at.slice(0, 10))} · {formatTimeLabel(appointment.starts_at)} – {formatTimeLabel(appointment.ends_at)}
-                      </p>
-                      <small>
-                        {appointment.status === 'cancelled' ? (
-                          <span className="status-badge cancelled">Cancelled</span>
-                        ) : (
-                          <span className="status-badge active">{appointment.status}</span>
-                        )}
-                      </small>
-                    </div>
-
-                    {appointment.status === 'cancelled' ? (
-                      <span className="status-badge cancelled">Cancelled</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="cancel-button"
-                        onClick={() => handleCancelAppointment(appointment.id)}
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                )
-              })
-            )}
+          <div className="admin-toolbar">
+            <span className="admin-chip">Signed in as {adminUsername}</span>
+            <button className="admin-secondary-button" onClick={() => setShowCancelled((current) => !current)} type="button">
+              {showCancelled ? 'Hide cancelled' : 'Show cancelled'}
+            </button>
+            <button className="admin-secondary-button" onClick={handleLogout} type="button">
+              Log out
+            </button>
           </div>
-        </section>
-      </main>
+        </header>
+
+        <main className="admin-main">
+          <section className="admin-panel">
+            <div className="admin-panel__header">
+              <div>
+                <p className="admin-kicker">Overview</p>
+                <h2>Appointments</h2>
+              </div>
+            </div>
+
+            {adminMessage.text && (
+              <p className={`admin-status-message ${adminMessage.type}`}>{adminMessage.text}</p>
+            )}
+
+            <div className="admin-appointments-list">
+              {visibleAppointments.length === 0 ? (
+                <p className="admin-empty-state">No appointments yet.</p>
+              ) : (
+                visibleAppointments.map((appointment) => {
+                  const service = services.find((item) => Number(item.id) === Number(appointment.service_id))
+                  const barber = barbers.find((item) => Number(item.id) === Number(appointment.barber_id))
+                  const statusLabel = getStatusLabel(appointment)
+                  const isPast = isPastAppointment(appointment)
+
+                  return (
+                    <article key={appointment.id} className="admin-appointment-card">
+                      <div className="admin-appointment-card__top">
+                        <div>
+                          <p className="admin-appointment-label">Customer</p>
+                          <h3>{appointment.customer_name}</h3>
+                        </div>
+                        <span className={`admin-status-badge admin-status-badge--${statusLabel.toLowerCase()}`}>
+                          {statusLabel}
+                        </span>
+                      </div>
+
+                      <div className="admin-appointment-card__meta">
+                        <span>{service ? service.name : 'Service'} · {barber ? barber.name : 'Barber'}</span>
+                        <span>{formatDateLabel(appointment.starts_at.slice(0, 10))}</span>
+                        <span>{formatTimeLabel(appointment.starts_at)} – {formatTimeLabel(appointment.ends_at)}</span>
+                      </div>
+
+                      {!isPast && appointment.status !== 'cancelled' && (
+                        <button type="button" className="admin-cancel-button" onClick={() => handleCancelAppointment(appointment.id)}>
+                          Cancel
+                        </button>
+                      )}
+                    </article>
+                  )
+                })
+              )}
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
   )
 }
