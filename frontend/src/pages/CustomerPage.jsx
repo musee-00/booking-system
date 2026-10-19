@@ -101,6 +101,7 @@ export function CustomerPage() {
     customer_email: '',
   })
   const [bookingMessage, setBookingMessage] = useState({ type: '', text: '' })
+  const [customerNotice, setCustomerNotice] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const weekDates = useMemo(() => buildWeekDates(), [])
@@ -232,7 +233,22 @@ export function CustomerPage() {
     fetchBarbers()
   }, [])
 
+  const resetBookingWizard = () => {
+    setSelectedServiceId('')
+    setSelectedBarberId('')
+    setSelectedBarberProfile(null)
+    setSelectedSlot(null)
+    setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
+    setBookingMessage({ type: '', text: '' })
+    setCurrentStep(0)
+    setSelectedDate(formatDateValue(new Date(Date.now() + 86400000)))
+    setIsBookingOpen(false)
+    setIsSubmitting(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const openBooking = (serviceId, barberId = '') => {
+    setCustomerNotice('')
     setSelectedServiceId(String(serviceId))
     setSelectedBarberId(String(barberId || ''))
     setSelectedBarberProfile(null)
@@ -310,12 +326,36 @@ export function CustomerPage() {
       return
     }
 
-    setBookingMessage({ type: 'success', text: 'Your appointment is confirmed.' })
-    setCurrentStep(WIZARD_STEPS.length - 1)
+    const barberName = selectedBarber?.name || barbers.find((barber) => Number(barber.id) === Number(selectedSlot.barber_id))?.name || 'your barber'
+    const confirmationNotice = `Booking confirmed! See you on ${formatDateLabel(selectedDate)} at ${formatTimeLabel(selectedSlot.start)} with ${barberName}`
+
+    setCustomerNotice(confirmationNotice)
+    setBookingMessage({ type: '', text: '' })
+    setIsBookingOpen(false)
+    setCurrentStep(0)
   }
+
+  useEffect(() => {
+    if (!customerNotice) {
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCustomerNotice('')
+      resetBookingWizard()
+    }, 3000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [customerNotice])
 
   return (
     <div className="premium-page">
+      {customerNotice && (
+        <div className="customer-success-banner" role="status" aria-live="polite">
+          {customerNotice}
+        </div>
+      )}
+
       <header className="topbar">
         <div className="topbar__brand">
           <div className="brand-mark">NS</div>
