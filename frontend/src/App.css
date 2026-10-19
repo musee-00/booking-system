@@ -727,6 +727,18 @@ button {
 .booking-step-panel {
   display: grid;
   gap: 20px;
+  animation: booking-step-fade 0.24s ease;
+}
+
+@keyframes booking-step-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .small-header {
@@ -1236,11 +1248,40 @@ button {
 
 .admin-calendar-grid {
   display: grid;
-  grid-template-columns: 84px repeat(var(--calendar-columns), minmax(0, 1fr));
+  grid-template-columns: 80px repeat(7, minmax(0, 1fr));
   gap: 12px;
-  overflow-x: hidden;
-  padding-bottom: 8px;
+  align-items: stretch;
   width: 100%;
+}
+
+.admin-calendar-header-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #f5efe7;
+  font-weight: 700;
+  padding: 10px 8px;
+}
+
+.admin-calendar-header-cell--blank {
+  border: none;
+  background: transparent;
+}
+
+.admin-calendar-header-cell span {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.admin-calendar-header-cell strong {
+  font-size: 1rem;
 }
 
 .admin-time-column {
@@ -1249,7 +1290,7 @@ button {
   color: #d9d1c6;
   font-size: 0.76rem;
   font-weight: 600;
-  padding-top: 56px;
+  padding-top: 0;
 }
 
 .admin-time-label {
@@ -1263,28 +1304,16 @@ button {
 .admin-calendar-column {
   display: flex;
   flex-direction: column;
-  min-width: 200px;
-}
-
-.admin-calendar-column__header {
-  min-height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px 12px 0 0;
-  background: rgba(255, 255, 255, 0.02);
-  color: #f5efe7;
-  font-weight: 700;
+  min-width: 0;
 }
 
 .admin-slot-surface {
   position: relative;
   min-height: 608px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-top: none;
-  border-radius: 0 0 12px 12px;
+  border-radius: 12px;
   background: rgba(9, 12, 18, 0.55);
+  overflow: hidden;
 }
 
 .admin-slot-row {
@@ -1329,10 +1358,16 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  overflow: hidden;
+  overflow: visible;
   z-index: 2;
   box-shadow: 0 14px 26px rgba(0, 0, 0, 0.18);
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-booking-block:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 30px rgba(0, 0, 0, 0.22);
 }
 
 .admin-booking-block--cancelled {
@@ -1351,6 +1386,35 @@ button {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  width: 100%;
+}
+
+.admin-booking-block__tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  max-width: min(220px, calc(100vw - 32px));
+  width: max-content;
+  max-width: 220px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.96);
+  color: #f8fafc;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  white-space: normal;
+  word-break: break-word;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+
+.admin-booking-block:hover .admin-booking-block__tooltip,
+.admin-booking-block:focus-visible .admin-booking-block__tooltip {
+  opacity: 1;
 }
 
 .admin-booking-block strong,

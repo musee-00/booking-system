@@ -264,6 +264,17 @@ export function CustomerPage() {
     setCurrentStep((previous) => Math.max(previous - 1, 0))
   }
 
+  const handleBarberSelect = (barberId) => {
+    setSelectedBarberId(String(barberId))
+    setSelectedSlot(null)
+    setCurrentStep(1)
+  }
+
+  const handleSlotSelect = (slot) => {
+    setSelectedSlot(slot)
+    setCurrentStep(2)
+  }
+
   const handleBookAppointment = async () => {
     if (!selectedService || !selectedSlot) {
       setBookingMessage({ type: 'error', text: 'Choose a service and a free slot before confirming.' })
@@ -561,7 +572,7 @@ export function CustomerPage() {
                       key={barber.id}
                       type="button"
                       className={`barber-option ${String(barber.id) === String(selectedBarberId) ? 'selected' : ''}`}
-                      onClick={() => setSelectedBarberId(String(barber.id))}
+                      onClick={() => handleBarberSelect(barber.id)}
                     >
                       <div className="barber-option__photo">
                         {barber.photo_url ? (
@@ -580,8 +591,7 @@ export function CustomerPage() {
                 </div>
 
                 <div className="booking-actions">
-                  <button type="button" className="secondary-button" onClick={() => setIsBookingOpen(false)}>Cancel</button>
-                  <button type="button" className="primary-button" onClick={handleNextStep} disabled={!currentStepIsValid}>Continue</button>
+                  <button type="button" className="secondary-button" onClick={() => setIsBookingOpen(false)}>Back</button>
                 </div>
               </div>
             )}
@@ -623,7 +633,7 @@ export function CustomerPage() {
                           key={`${slot.barber_id}-${slot.start.toISOString()}-${index}`}
                           type="button"
                           className={`slot-button ${selectedSlot && selectedSlot.start.toISOString() === slot.start.toISOString() && selectedSlot.barber_id === slot.barber_id ? 'selected' : ''}`}
-                          onClick={() => setSelectedSlot(slot)}
+                          onClick={() => handleSlotSelect(slot)}
                         >
                           <span>{formatTimeLabel(slot.start)} – {formatTimeLabel(slot.end)}</span>
                         </button>
@@ -634,7 +644,6 @@ export function CustomerPage() {
 
                 <div className="booking-actions">
                   <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
-                  <button type="button" className="primary-button" onClick={handleNextStep} disabled={!currentStepIsValid}>Continue</button>
                 </div>
               </div>
             )}

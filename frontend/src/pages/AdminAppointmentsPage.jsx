@@ -203,6 +203,37 @@ export function AdminAppointmentsPage() {
 
   const calendarColumns = useMemo(() => getCalendarColumns(), [barbers, selectedDate, viewMode, visibleAppointments])
 
+  const getAppointmentLayout = (appointments, appointment) => {
+    const sortedAppointments = [...appointments].sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at))
+    const appointmentStart = new Date(appointment.starts_at).getTime()
+    const appointmentEnd = new Date(appointment.ends_at).getTime()
+    const overlappingAppointments = sortedAppointments.filter((candidate) => {
+      if (candidate.id === appointment.id) {
+        return false
+      }
+
+      const candidateStart = new Date(candidate.starts_at).getTime()
+      const candidateEnd = new Date(candidate.ends_at).getTime()
+      return candidateStart < appointmentEnd && candidateEnd > appointmentStart
+    })
+
+    const laneIndex = overlappingAppointments.reduce((index, candidate) => {
+      if (new Date(candidate.starts_at).getTime() >= appointmentEnd || new Date(candidate.ends_at).getTime() <= appointmentStart) {
+        return index
+      }
+      return index + 1
+    }, 0)
+
+    const laneCount = Math.max(1, overlappingAppointments.length + 1)
+    const leftPercent = (laneIndex * 100) / laneCount
+    const widthPercent = 100 / laneCount
+
+    return {
+      left: `${leftPercent}%`,
+      width: `${widthPercent}%`,
+    }
+  }
+
   const getAppointmentStyle = (appointment) => {
     const startMinutes = getMinutesFromDate(appointment.starts_at)
     const durationMinutes = getDurationMinutes(appointment.starts_at, appointment.ends_at)
@@ -466,7 +497,23 @@ export function AdminAppointmentsPage() {
 
             <div className="admin-calendar-layout">
               <div className="admin-calendar-main">
-                <div className="admin-calendar-grid" style={{ '--calendar-columns': calendarColumns.length }}>
+                <div
+                  className="admin-calendar-grid"
+                  style={{
+                    gridTemplateColumns:
+                      viewMode === 'week'
+                        ? '80px repeat(7, minmax(0, 1fr))'
+                        : `80px repeat(${calendarColumns.length}, minmax(0, 1fr))`,
+                  }}
+                >
+                  <div className="admin-calendar-header-cell admin-calendar-header-cell--blank" aria-hidden="true" />
+                  {(viewMode === 'week' ? weekDates : calendarColumns).map((headerColumn) => (
+                    <div key={`header-${headerColumn.id || headerColumn.key}`} className="admin-calendar-header-cell">
+                      <span>{headerColumn.label || headerColumn.day || 'Day'}</span>
+                      <strong>{headerColumn.day || headerColumn.label?.split(' ')[1] || '1'}</strong>
+                    </div>
+                  ))}
+
                   <div className="admin-time-column">
                     {timeMarkers.map((marker) => (
                       <div key={marker.id} className="admin-time-label">
@@ -483,10 +530,6 @@ export function AdminAppointmentsPage() {
 
                     return (
                       <div key={column.id} className="admin-calendar-column">
-                        <div className="admin-calendar-column__header">
-                          {column.label}
-                        </div>
-
                         <div className="admin-slot-surface">
                           {timeMarkers.map((marker) => (
                             <div key={`${column.id}-${marker.id}`} className={`admin-slot-row ${marker.minutes < OPENING_HOUR * 60 || marker.minutes >= CLOSING_HOUR * 60 ? 'is-off-hours' : ''}`} />
@@ -494,6 +537,7 @@ export function AdminAppointmentsPage() {
 
                           {column.appointments.map((appointment) => {
                             const style = getAppointmentStyle(appointment)
+                            const layout = getAppointmentLayout(column.appointments, appointment)
                             const service = services.find((item) => Number(item.id) === Number(appointment.service_id))
                             const barber = barbers.find((item) => Number(item.id) === Number(appointment.barber_id))
                             const statusLabel = getStatusLabel(appointment)
@@ -512,9 +556,14 @@ export function AdminAppointmentsPage() {
                                 key={appointment.id}
                                 type="button"
                                 className={`admin-booking-block admin-booking-block--${appointment.status}`}
-                                style={{ ...style, ...getAppointmentBlockStyle(appointment, barber) }}
+                                style={{
+                                  ...style,
+                                  ...layout,
+                                  right: 'auto',
+                                  ...getAppointmentBlockStyle(appointment, barber),
+                                }}
                                 onClick={() => openAppointmentPanel(appointment)}
-                                title={tooltipText}
+                                aria-label={tooltipText}
                               >
                                 <div className="admin-booking-block__content">
                                   <strong>{appointment.customer_name}</strong>
@@ -525,6 +574,7 @@ export function AdminAppointmentsPage() {
                                     </>
                                   )}
                                 </div>
+                                <span className="admin-booking-block__tooltip">{tooltipText}</span>
                               </button>
                             )
                           })}
