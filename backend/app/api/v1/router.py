@@ -1,0 +1,94 @@
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.database import get_db
+from app.models import Appointment, Barber, Service
+from app.schemas import (
+    AppointmentCreate,
+    AppointmentRead,
+    BarberCreate,
+    BarberRead,
+    ServiceCreate,
+    ServiceRead,
+)
+
+router = APIRouter(prefix="/api/v1")
+
+
+@router.get("/health")
+def health_check() -> dict[str, str]:
+    return {"status": "ok", "message": "Booking System API is running"}
+
+
+@router.get("/barbers", response_model=list[BarberRead])
+def list_barbers(db: Session = Depends(get_db)) -> list[Barber]:
+    return db.scalars(select(Barber).order_by(Barber.created_at.desc())).all()
+
+
+@router.post("/barbers", response_model=BarberRead)
+def create_barber(barber: BarberCreate, db: Session = Depends(get_db)) -> Barber:
+    db_barber = Barber(**barber.model_dump())
+    db.add(db_barber)
+    db.commit()
+    db.refresh(db_barber)
+    return db_barber
+
+
+@router.get("/services", response_model=list[ServiceRead])
+def list_services(db: Session = Depends(get_db)) -> list[Service]:
+    return db.scalars(select(Service).order_by(Service.created_at.desc())).all()
+
+
+@router.post("/services", response_model=ServiceRead)
+def create_service(service: ServiceCreate, db: Session = Depends(get_db)) -> Service:
+    db_service = Service(**service.model_dump())
+    db.add(db_service)
+    db.commit()
+    db.refresh(db_service)
+    return db_service
+
+
+@router.get("/appointments", response_model=list[AppointmentRead])
+def list_appointments(db: Session = Depends(get_db)) -> list[Appointment]:
+    return db.scalars(select(Appointment).order_by(Appointment.starts_at.asc())).all()
+
+
+@router.post("/appointments", response_model=AppointmentRead)
+def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get_db)) -> Appointment:
+    if appointment.ends_at <= appointment.starts_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Appointment end time must be after the start time.",
+        )
+
+    service = db.get(Service, appointment.service_id)
+    if service is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found.")
+
+    barber = db.get(Barber, appointment.barber_id)
+    if barber is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
+
+    overlap = db.execute(
+        select(Appointment.id).where(
+            Appointment.barber_id == appointment.barber_id,
+            Appointment.status != "cancelled",
+            Appointment.starts_at < appointment.ends_at,
+            Appointment.ends_at > appointment.starts_at,
+        )
+    ).first()
+
+    if overlap is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This barber already has an appointment overlapping the requested time.",
+        )
+
+    db_appointment = Appointment(**appointment.model_dump())
+    db.add(db_appointment)
+    db.commit()
+    db.refresh(db_appointment)
+    return db_appointment
