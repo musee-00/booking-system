@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     app_name: str = "Booking System API"
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://booking_user:booking_password@localhost:5432/booking_db"
+    test_database_url: str = "postgresql+psycopg://booking_user:booking_password@localhost:5432/booking_test_db"
     admin_username: str = "admin"
     admin_password: str = "admin123"
     jwt_secret: str = "change-this-to-a-long-random-secret"
