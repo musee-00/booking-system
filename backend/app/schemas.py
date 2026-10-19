@@ -29,6 +29,10 @@ class BarberBase(BaseModel):
     name: str
     email: str | None = None
     phone: str | None = None
+    role: str | None = None
+    bio: str | None = None
+    photo_url: str | None = None
+    color: str | None = None
 
 
 class BarberCreate(BarberBase):

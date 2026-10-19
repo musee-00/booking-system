@@ -25,6 +25,10 @@ class Barber(Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(30))
+    role: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    color: Mapped[str | None] = mapped_column(String(20), nullable=True, default="#d9b57f")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="barber")

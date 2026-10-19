@@ -39,9 +39,33 @@ def seed_data() -> None:
     db = SessionLocal()
     try:
         barbers = [
-            Barber(name="Mika Lindberg", email="mika@northstreetstudio.se", phone="+46700000001"),
-            Barber(name="Noah Hassan", email="noah@northstreetstudio.se", phone="+46700000002"),
-            Barber(name="Alicia Sundström", email="alicia@northstreetstudio.se", phone="+46700000003"),
+            Barber(
+                name="Mika Lindberg",
+                email="mika@northstreetstudio.se",
+                phone="+46700000001",
+                role="Owner",
+                bio="Mika blends precision cuts with a relaxed Scandinavian style and a sharp eye for modern fades.",
+                photo_url="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=80",
+                color="#8B5E3C",
+            ),
+            Barber(
+                name="Noah Hassan",
+                email="noah@northstreetstudio.se",
+                phone="+46700000002",
+                role="Barber",
+                bio="Noah is known for clean lines, textured finishes, and easy-going consultations for every client.",
+                photo_url="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=900&q=80",
+                color="#2F6F7A",
+            ),
+            Barber(
+                name="Alicia Sundström",
+                email="alicia@northstreetstudio.se",
+                phone="+46700000003",
+                role="Barber",
+                bio="Alicia specializes in soft styling, beard shaping, and premium finishing touches that hold their look all week.",
+                photo_url="https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=900&q=80",
+                color="#4C6F3A",
+            ),
         ]
         db.add_all(barbers)
         db.flush()

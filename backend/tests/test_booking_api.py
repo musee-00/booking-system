@@ -31,6 +31,26 @@ def test_create_and_list_services() -> None:
     assert any(item["name"] == payload["name"] for item in services)
 
 
+def test_create_barber_with_profile_details() -> None:
+    payload = {
+        "name": f"Barber {uuid4().hex[:8]}",
+        "email": f"barber-profile-{uuid4().hex[:8]}@example.com",
+        "phone": "+46700000022",
+        "role": "Owner",
+        "bio": "Custom cuts and classic finishing details.",
+        "photo_url": "https://example.com/barber.jpg",
+        "color": "#8B5E3C",
+    }
+
+    response = client.post("/api/v1/barbers", json=payload)
+    assert response.status_code == 200, response.text
+    barber = response.json()
+    assert barber["role"] == payload["role"]
+    assert barber["bio"] == payload["bio"]
+    assert barber["photo_url"] == payload["photo_url"]
+    assert barber["color"] == payload["color"]
+
+
 def test_create_and_list_appointments() -> None:
     barber_response = client.post(
         "/api/v1/barbers",
