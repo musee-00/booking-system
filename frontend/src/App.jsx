@@ -22,6 +22,8 @@ const formatTimeLabel = (dateValue) =>
     minute: '2-digit',
   })
 
+const formatPrice = (amount) => `${Number(amount).toFixed(0)} kr`
+
 function App() {
   const [services, setServices] = useState([])
   const [barbers, setBarbers] = useState([])
@@ -61,9 +63,16 @@ function App() {
     const startOfDay = new Date(`${selectedDate}T09:00:00`)
     const endOfDay = new Date(`${selectedDate}T18:00:00`)
     const slots = []
+    const now = new Date()
+    const isToday = selectedDate === formatDateValue(now)
 
     for (let candidate = new Date(startOfDay); candidate.getTime() + durationMs <= endOfDay.getTime(); candidate = new Date(candidate.getTime() + 30 * 60000)) {
       const candidateEnd = new Date(candidate.getTime() + durationMs)
+
+      if (isToday && candidate.getTime() < now.getTime()) {
+        continue
+      }
+
       const isBlocked = appointments.some((appointment) => {
         if (Number(appointment.barber_id) !== Number(selectedBarberId)) {
           return false
@@ -239,7 +248,7 @@ function App() {
               <select value={selectedServiceId} onChange={(event) => setSelectedServiceId(event.target.value)}>
                 {services.map((service) => (
                   <option key={service.id} value={service.id}>
-                    {service.name} — ${service.price}
+                    {service.name} — {formatPrice(service.price)}
                   </option>
                 ))}
               </select>
@@ -372,25 +381,42 @@ function App() {
                 {adminAppointments.length === 0 ? (
                   <p className="empty-state">No appointments yet.</p>
                 ) : (
-                  adminAppointments.map((appointment) => (
-                    <div key={appointment.id} className="appointment-card">
-                      <div>
-                        <strong>{appointment.customer_name}</strong>
-                        <p>
-                          {formatDateLabel(appointment.starts_at.slice(0, 10))} · {formatTimeLabel(appointment.starts_at)} – {formatTimeLabel(appointment.ends_at)}
-                        </p>
-                        <small>{appointment.status}</small>
+                  adminAppointments.map((appointment) => {
+                    const service = services.find((item) => Number(item.id) === Number(appointment.service_id))
+                    const barber = barbers.find((item) => Number(item.id) === Number(appointment.barber_id))
+
+                    return (
+                      <div key={appointment.id} className="appointment-card">
+                        <div>
+                          <strong>{appointment.customer_name}</strong>
+                          <p>
+                            {service ? service.name : 'Service'} · {barber ? barber.name : 'Barber'}
+                          </p>
+                          <p>
+                            {formatDateLabel(appointment.starts_at.slice(0, 10))} · {formatTimeLabel(appointment.starts_at)} – {formatTimeLabel(appointment.ends_at)}
+                          </p>
+                          <small>
+                            {appointment.status === 'cancelled' ? (
+                              <span className="status-badge cancelled">Cancelled</span>
+                            ) : (
+                              <span className="status-badge active">{appointment.status}</span>
+                            )}
+                          </small>
+                        </div>
+                        {appointment.status === 'cancelled' ? (
+                          <span className="status-badge cancelled">Cancelled</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="cancel-button"
+                            onClick={() => handleCancelAppointment(appointment.id)}
+                          >
+                            Cancel
+                          </button>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        className="cancel-button"
-                        onClick={() => handleCancelAppointment(appointment.id)}
-                        disabled={appointment.status === 'cancelled'}
-                      >
-                        {appointment.status === 'cancelled' ? 'Cancelled' : 'Cancel'}
-                      </button>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </div>

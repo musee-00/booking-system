@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -64,6 +66,17 @@ def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Appointment end time must be after the start time.",
+        )
+
+    starts_at = appointment.starts_at
+    if starts_at.tzinfo is None:
+        starts_at = starts_at.replace(tzinfo=timezone.utc)
+
+    now_utc = datetime.now(timezone.utc)
+    if starts_at < now_utc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Appointments cannot be scheduled in the past.",
         )
 
     service = db.get(Service, appointment.service_id)

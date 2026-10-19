@@ -124,6 +124,49 @@ def test_rejects_overlapping_appointments_for_same_barber() -> None:
     assert "overlapping" in overlapping_response.json()["detail"].lower()
 
 
+def test_rejects_bookings_in_the_past() -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-past-{uuid4().hex[:8]}@example.com",
+            "phone": "+46700000007",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Past Booking {uuid4().hex[:8]}",
+            "duration_minutes": 30,
+            "price": "150.00",
+            "description": "Should be rejected because it is in the past",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    past_start = now - __import__("datetime").timedelta(hours=2)
+    past_end = past_start + __import__("datetime").timedelta(minutes=30)
+
+    response = client.post(
+        "/api/v1/appointments",
+        json={
+            "barber_id": barber_id,
+            "service_id": service_id,
+            "customer_name": "Old Customer",
+            "customer_phone": "+46700000099",
+            "customer_email": "old@example.com",
+            "starts_at": past_start.isoformat(),
+            "ends_at": past_end.isoformat(),
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert "past" in response.json()["detail"].lower()
+
+
 def test_admin_login_with_wrong_password_fails() -> None:
     login_response = client.post(
         "/api/v1/admin/login",
