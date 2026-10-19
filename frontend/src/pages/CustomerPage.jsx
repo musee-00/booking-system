@@ -91,7 +91,7 @@ export function CustomerPage() {
   const [isBookingOpen, setIsBookingOpen] = useState(false)
   const [selectedServiceId, setSelectedServiceId] = useState('')
   const [currentStep, setCurrentStep] = useState(0)
-  const [selectedBarberId, setSelectedBarberId] = useState('any')
+  const [selectedBarberId, setSelectedBarberId] = useState('')
   const [selectedBarberProfile, setSelectedBarberProfile] = useState(null)
   const [selectedDate, setSelectedDate] = useState(formatDateValue(new Date(Date.now() + 86400000)))
   const [selectedSlot, setSelectedSlot] = useState(null)
@@ -147,9 +147,7 @@ export function CustomerPage() {
       return
     }
 
-    const relevantBarberIds = selectedBarberId === 'any'
-      ? barbers.map((barber) => barber.id)
-      : [Number(selectedBarberId)].filter(Boolean)
+    const relevantBarberIds = [Number(selectedBarberId)].filter(Boolean)
 
     if (!relevantBarberIds.length) {
       setSlotAvailability({})
@@ -192,7 +190,7 @@ export function CustomerPage() {
 
   const currentStepIsValid = useMemo(() => {
     if (currentStep === 0) {
-      return selectedBarberId === 'any' || Boolean(selectedBarber)
+      return Boolean(selectedBarber)
     }
 
     if (currentStep === 1) {
@@ -206,9 +204,7 @@ export function CustomerPage() {
     return true
   }, [bookingForm.customer_name, bookingForm.customer_phone, currentStep, selectedBarber, selectedBarberId, selectedSlot])
 
-  const summaryBarber = selectedBarberId === 'any'
-    ? (selectedSlot?.barber_name || 'Any available')
-    : (selectedBarber?.name || 'Barber')
+  const summaryBarber = selectedBarber?.name || 'Barber'
 
   const today = new Date()
   const todayIndex = today.getDay()
@@ -236,9 +232,9 @@ export function CustomerPage() {
     fetchBarbers()
   }, [])
 
-  const openBooking = (serviceId, barberId = 'any') => {
+  const openBooking = (serviceId, barberId = '') => {
     setSelectedServiceId(String(serviceId))
-    setSelectedBarberId(String(barberId || 'any'))
+    setSelectedBarberId(String(barberId || ''))
     setSelectedBarberProfile(null)
     setSelectedSlot(null)
     setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
@@ -481,6 +477,10 @@ export function CustomerPage() {
         </section>
       </main>
 
+      <footer className="customer-footer">
+        <a href="/admin">Staff login</a>
+      </footer>
+
       {selectedBarberProfile && (
         <div className="booking-modal-backdrop" onClick={() => setSelectedBarberProfile(null)}>
           <div className="barber-profile-panel" onClick={(event) => event.stopPropagation()}>
@@ -556,15 +556,6 @@ export function CustomerPage() {
                 </div>
 
                 <div className="modal-barber-grid">
-                  <button
-                    type="button"
-                    className={`barber-option ${selectedBarberId === 'any' ? 'selected' : ''}`}
-                    onClick={() => setSelectedBarberId('any')}
-                  >
-                    <strong>Any available</strong>
-                    <small>First opening available</small>
-                  </button>
-
                   {barbers.map((barber) => (
                     <button
                       key={barber.id}
@@ -572,8 +563,18 @@ export function CustomerPage() {
                       className={`barber-option ${String(barber.id) === String(selectedBarberId) ? 'selected' : ''}`}
                       onClick={() => setSelectedBarberId(String(barber.id))}
                     >
-                      <strong>{barber.name}</strong>
-                      <small>{barber.email}</small>
+                      <div className="barber-option__photo">
+                        {barber.photo_url ? (
+                          <img src={barber.photo_url} alt={barber.name} />
+                        ) : (
+                          <span>{getBarberInitials(barber.name)}</span>
+                        )}
+                      </div>
+
+                      <div className="barber-option__body">
+                        <strong>{barber.name}</strong>
+                        <small>{barber.role || 'Barber'}</small>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -625,7 +626,6 @@ export function CustomerPage() {
                           onClick={() => setSelectedSlot(slot)}
                         >
                           <span>{formatTimeLabel(slot.start)} – {formatTimeLabel(slot.end)}</span>
-                          {selectedBarberId === 'any' && <small>{slot.barber_name}</small>}
                         </button>
                       ))}
                     </div>
