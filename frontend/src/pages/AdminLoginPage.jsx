@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 const API_BASE = 'http://localhost:8000/api/v1'
 
@@ -50,6 +50,8 @@ export function AdminLoginPage() {
               <h1>North Street Studio</h1>
             </div>
           </div>
+
+          <Link to="/" className="admin-secondary-button">Customer page</Link>
         </header>
 
         <main className="admin-main">

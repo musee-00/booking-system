@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 const API_BASE = 'http://localhost:8000/api/v1'
 const OPENING_HOUR = 9
@@ -65,6 +65,23 @@ const getMinutesFromDate = (dateValue) => {
 const getDurationMinutes = (start, end) => {
   const diffMs = new Date(end).getTime() - new Date(start).getTime()
   return Math.max(0, Math.round(diffMs / 60000))
+}
+
+const DEFAULT_BARBER_COLOR = '#d9b57f'
+
+const getBarberColor = (barber) => barber?.color || DEFAULT_BARBER_COLOR
+
+const getReadableTextColor = (hexColor) => {
+  const normalized = hexColor.replace('#', '')
+  if (normalized.length !== 6) {
+    return '#fff9f0'
+  }
+
+  const red = Number.parseInt(normalized.slice(0, 2), 16)
+  const green = Number.parseInt(normalized.slice(2, 4), 16)
+  const blue = Number.parseInt(normalized.slice(4, 6), 16)
+  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255
+  return luminance > 0.62 ? '#111827' : '#fff9f0'
 }
 
 const fetchJson = async (url, options = {}) => {
@@ -196,6 +213,20 @@ export function AdminAppointmentsPage() {
       top: `${Math.max(top, 0)}px`,
       height: `${height}px`,
     }
+  }
+
+  const getAppointmentBlockStyle = (appointment, barber) => {
+    const barberColor = getBarberColor(barber)
+    const readableTextColor = getReadableTextColor(barberColor)
+    const blockStyle = {
+      background: appointment.status === 'cancelled'
+        ? 'repeating-linear-gradient(135deg, rgba(148,163,184,0.24), rgba(148,163,184,0.24) 8px, rgba(100,116,139,0.35) 8px, rgba(100,116,139,0.35) 16px)'
+        : barberColor,
+      color: appointment.status === 'cancelled' ? '#f8fafc' : readableTextColor,
+      borderColor: appointment.status === 'cancelled' ? 'rgba(148,163,184,0.45)' : barberColor,
+    }
+
+    return blockStyle
   }
 
   const isPastAppointment = (appointment) => new Date(appointment.starts_at) < new Date()
@@ -394,6 +425,7 @@ export function AdminAppointmentsPage() {
                 Week
               </button>
             </div>
+            <Link to="/" className="admin-secondary-button">Customer page</Link>
             <button className="admin-secondary-button" onClick={() => setShowCancelled((current) => !current)} type="button">
               {showCancelled ? 'Hide cancelled' : 'Show cancelled'}
             </button>
@@ -465,18 +497,34 @@ export function AdminAppointmentsPage() {
                             const service = services.find((item) => Number(item.id) === Number(appointment.service_id))
                             const barber = barbers.find((item) => Number(item.id) === Number(appointment.barber_id))
                             const statusLabel = getStatusLabel(appointment)
+                            const blockHeight = Number.parseFloat(style.height || '0')
+                            const blockCompact = blockHeight < 70
+                            const tooltipText = [
+                              `${formatTimeLabel(appointment.starts_at)} – ${formatTimeLabel(appointment.ends_at)}`,
+                              appointment.customer_name,
+                              service?.name || 'Appointment',
+                              barber?.name || 'Barber',
+                              statusLabel,
+                            ].join(' • ')
 
                             return (
                               <button
                                 key={appointment.id}
                                 type="button"
                                 className={`admin-booking-block admin-booking-block--${appointment.status}`}
-                                style={style}
+                                style={{ ...style, ...getAppointmentBlockStyle(appointment, barber) }}
                                 onClick={() => openAppointmentPanel(appointment)}
+                                title={tooltipText}
                               >
-                                <strong>{appointment.customer_name}</strong>
-                                <span>{service?.name || 'Appointment'} · {barber?.name || 'Barber'}</span>
-                                <small>{statusLabel}</small>
+                                <div className="admin-booking-block__content">
+                                  <strong>{appointment.customer_name}</strong>
+                                  {!blockCompact && (
+                                    <>
+                                      <span>{formatTimeLabel(appointment.starts_at)} – {formatTimeLabel(appointment.ends_at)}</span>
+                                      <small>{service?.name || 'Appointment'}</small>
+                                    </>
+                                  )}
+                                </div>
                               </button>
                             )
                           })}
