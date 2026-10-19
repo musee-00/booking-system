@@ -1,12 +1,11 @@
-import secrets
-
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import create_access_token, create_admin_user_record, get_admin_user_from_token, verify_password
 from app.core.config import settings
 from app.db.database import get_db
-from app.models import Appointment, Barber, Service
+from app.models import AdminUser, Appointment, Barber, Service
 from app.schemas import (
     AdminLoginRequest,
     AdminLoginResponse,
@@ -19,7 +18,6 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1")
-ACTIVE_ADMIN_TOKENS: set[str] = set()
 
 
 @router.get("/health")
@@ -99,12 +97,16 @@ def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get
 
 
 @router.post("/admin/login", response_model=AdminLoginResponse)
-def admin_login(payload: AdminLoginRequest) -> AdminLoginResponse:
-    if payload.username != settings.admin_username or payload.password != settings.admin_password:
+def admin_login(payload: AdminLoginRequest, db: Session = Depends(get_db)) -> AdminLoginResponse:
+    admin_user = db.query(AdminUser).filter(AdminUser.username == payload.username).first()
+    if admin_user is None:
+        create_admin_user_record(db, settings.admin_username, settings.admin_password)
+        admin_user = db.query(AdminUser).filter(AdminUser.username == payload.username).first()
+
+    if admin_user is None or not verify_password(payload.password, admin_user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials.")
 
-    token = f"admin-token-{secrets.token_urlsafe(24)}"
-    ACTIVE_ADMIN_TOKENS.add(token)
+    token = create_access_token(admin_user.username)
     return AdminLoginResponse(token=token)
 
 
@@ -118,8 +120,13 @@ def cancel_appointment(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token.")
 
     token = authorization.split(" ", 1)[1].strip()
-    if token not in ACTIVE_ADMIN_TOKENS:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired admin token.")
+    try:
+        admin_user = get_admin_user_from_token(db, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired admin token.") from exc
+
+    if admin_user.username != settings.admin_username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized admin account.")
 
     appointment = db.get(Appointment, appointment_id)
     if appointment is None:

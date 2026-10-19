@@ -7,7 +7,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://booking_user:booking_password@localhost:5432/booking_db"
     admin_username: str = "admin"
     admin_password: str = "admin123"
-    admin_token_secret: str = "booking-system-secret"
+    jwt_secret: str = "change-this-to-a-long-random-secret"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60
 
     model_config = SettingsConfigDict(
         env_file=".env",

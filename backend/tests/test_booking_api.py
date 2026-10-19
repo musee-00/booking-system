@@ -124,6 +124,54 @@ def test_rejects_overlapping_appointments_for_same_barber() -> None:
     assert "overlapping" in overlapping_response.json()["detail"].lower()
 
 
+def test_admin_login_with_wrong_password_fails() -> None:
+    login_response = client.post(
+        "/api/v1/admin/login",
+        json={"username": "admin", "password": "wrong-password"},
+    )
+    assert login_response.status_code == 401, login_response.text
+
+
+def test_cancel_appointment_requires_token() -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-no-token-{uuid4().hex[:8]}@example.com",
+            "phone": "+46711111112",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Classic Beard Trim {uuid4().hex[:8]}",
+            "duration_minutes": 30,
+            "price": "180.00",
+            "description": "Trim and shape",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    appointment_response = client.post(
+        "/api/v1/appointments",
+        json={
+            "barber_id": barber_id,
+            "service_id": service_id,
+            "customer_name": "Diana Lane",
+            "customer_phone": "+46700000012",
+            "customer_email": "diana@example.com",
+            "starts_at": "2026-10-23T09:00:00",
+            "ends_at": "2026-10-23T09:30:00",
+        },
+    )
+    appointment_id = appointment_response.json()["id"]
+
+    cancel_response = client.patch(f"/api/v1/appointments/{appointment_id}/cancel")
+    assert cancel_response.status_code == 401, cancel_response.text
+
+
 def test_admin_can_login_and_cancel_appointment() -> None:
     barber_response = client.post(
         "/api/v1/barbers",
