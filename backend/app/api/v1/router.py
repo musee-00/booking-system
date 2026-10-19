@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import date as date_type, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,6 +21,19 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1")
+STOCKHOLM_TZ = ZoneInfo("Europe/Stockholm")
+DAY_START_HOUR = 9
+DAY_END_HOUR = 18
+
+
+def ensure_stockholm_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=STOCKHOLM_TZ)
+    return value.astimezone(STOCKHOLM_TZ)
+
+
+def is_business_day(value: date_type) -> bool:
+    return value.weekday() in {1, 2, 3, 4, 5}
 
 
 @router.get("/health")
@@ -60,6 +74,63 @@ def list_appointments(db: Session = Depends(get_db)) -> list[Appointment]:
     return db.scalars(select(Appointment).order_by(Appointment.starts_at.asc())).all()
 
 
+@router.get("/availability")
+def list_availability(
+    barber_id: int = Query(...),
+    service_id: int = Query(...),
+    date: date_type = Query(...),
+    db: Session = Depends(get_db),
+) -> list[dict[str, str | int]]:
+    service = db.get(Service, service_id)
+    if service is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found.")
+
+    barber = db.get(Barber, barber_id)
+    if barber is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
+
+    if not is_business_day(date):
+        return []
+
+    slot_duration = timedelta(minutes=service.duration_minutes)
+    day_start = datetime.combine(date, time(DAY_START_HOUR, 0), tzinfo=STOCKHOLM_TZ)
+    day_end = datetime.combine(date, time(DAY_END_HOUR, 0), tzinfo=STOCKHOLM_TZ)
+    now_stockholm = datetime.now(STOCKHOLM_TZ)
+
+    slots: list[dict[str, str | int]] = []
+    candidate_start = day_start
+
+    while candidate_start + slot_duration <= day_end:
+        candidate_end = candidate_start + slot_duration
+
+        if candidate_start < now_stockholm:
+            candidate_start += timedelta(minutes=30)
+            continue
+
+        overlap = db.execute(
+            select(Appointment.id).where(
+                Appointment.barber_id == barber_id,
+                Appointment.status != "cancelled",
+                Appointment.starts_at <= candidate_end,
+                Appointment.ends_at >= candidate_start,
+            )
+        ).first()
+
+        if overlap is None:
+            slots.append(
+                {
+                    "barber_id": barber.id,
+                    "barber_name": barber.name,
+                    "start": candidate_start.isoformat(),
+                    "end": candidate_end.isoformat(),
+                }
+            )
+
+        candidate_start += timedelta(minutes=30)
+
+    return slots
+
+
 @router.post("/appointments", response_model=AppointmentRead)
 def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get_db)) -> Appointment:
     if appointment.ends_at <= appointment.starts_at:
@@ -68,15 +139,28 @@ def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get
             detail="Appointment end time must be after the start time.",
         )
 
-    starts_at = appointment.starts_at
-    if starts_at.tzinfo is None:
-        starts_at = starts_at.replace(tzinfo=timezone.utc)
+    starts_at = ensure_stockholm_datetime(appointment.starts_at)
+    ends_at = ensure_stockholm_datetime(appointment.ends_at)
+    now_stockholm = datetime.now(STOCKHOLM_TZ)
 
-    now_utc = datetime.now(timezone.utc)
-    if starts_at < now_utc:
+    if starts_at < now_stockholm:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Appointments cannot be scheduled in the past.",
+        )
+
+    if not is_business_day(starts_at.date()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Appointments are only available on Tuesday to Saturday.",
+        )
+
+    day_start = datetime.combine(starts_at.date(), time(DAY_START_HOUR, 0), tzinfo=STOCKHOLM_TZ)
+    day_end = datetime.combine(starts_at.date(), time(DAY_END_HOUR, 0), tzinfo=STOCKHOLM_TZ)
+    if starts_at < day_start or ends_at > day_end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Appointments must be scheduled within business hours (09:00-18:00).",
         )
 
     service = db.get(Service, appointment.service_id)
@@ -91,8 +175,8 @@ def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get
         select(Appointment.id).where(
             Appointment.barber_id == appointment.barber_id,
             Appointment.status != "cancelled",
-            Appointment.starts_at < appointment.ends_at,
-            Appointment.ends_at > appointment.starts_at,
+            Appointment.starts_at <= ends_at,
+            Appointment.ends_at >= starts_at,
         )
     ).first()
 
@@ -102,7 +186,17 @@ def create_appointment(appointment: AppointmentCreate, db: Session = Depends(get
             detail="This barber already has an appointment overlapping the requested time.",
         )
 
-    db_appointment = Appointment(**appointment.model_dump())
+    db_appointment = Appointment(
+        barber_id=appointment.barber_id,
+        service_id=appointment.service_id,
+        customer_name=appointment.customer_name,
+        customer_phone=appointment.customer_phone,
+        customer_email=appointment.customer_email,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        status="pending",
+        notes=appointment.notes,
+    )
     db.add(db_appointment)
     db.commit()
     db.refresh(db_appointment)

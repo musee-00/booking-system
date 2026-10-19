@@ -1,4 +1,6 @@
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
@@ -124,6 +126,81 @@ def test_rejects_overlapping_appointments_for_same_barber() -> None:
     assert "overlapping" in overlapping_response.json()["detail"].lower()
 
 
+def test_rejects_partial_overlap_and_releases_slot_after_cancellation() -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-partial-overlap-{uuid4().hex[:8]}@example.com",
+            "phone": "+46700000007",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Partial Overlap {uuid4().hex[:8]}",
+            "duration_minutes": 30,
+            "price": "200.00",
+            "description": "Used for partial overlap checks",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    booked_payload = {
+        "barber_id": barber_id,
+        "service_id": service_id,
+        "customer_name": "Alice Andersson",
+        "customer_phone": "+46700000000",
+        "customer_email": "alice@example.com",
+        "starts_at": "2026-10-24T09:00:00",
+        "ends_at": "2026-10-24T09:30:00",
+    }
+
+    first_response = client.post("/api/v1/appointments", json=booked_payload)
+    assert first_response.status_code == 200, first_response.text
+
+    overlap_response = client.post(
+        "/api/v1/appointments",
+        json={
+            **booked_payload,
+            "customer_name": "Bob Berman",
+            "customer_email": "bob@example.com",
+            "starts_at": "2026-10-24T09:15:00",
+            "ends_at": "2026-10-24T10:00:00",
+        },
+    )
+
+    assert overlap_response.status_code == 409, overlap_response.text
+    assert "overlapping" in overlap_response.json()["detail"].lower()
+
+    login_response = client.post(
+        "/api/v1/admin/login",
+        json={"username": "admin", "password": "admin123"},
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["token"]
+
+    cancel_response = client.patch(
+        f"/api/v1/appointments/{first_response.json()['id']}/cancel",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert cancel_response.status_code == 200, cancel_response.text
+
+    reopened_response = client.post(
+        "/api/v1/appointments",
+        json={
+            **booked_payload,
+            "customer_name": "Carol Carlson",
+            "customer_email": "carol@example.com",
+            "starts_at": "2026-10-24T09:15:00",
+            "ends_at": "2026-10-24T10:00:00",
+        },
+    )
+    assert reopened_response.status_code == 200, reopened_response.text
+
+
 def test_rejects_bookings_in_the_past() -> None:
     barber_response = client.post(
         "/api/v1/barbers",
@@ -165,6 +242,151 @@ def test_rejects_bookings_in_the_past() -> None:
 
     assert response.status_code == 400, response.text
     assert "past" in response.json()["detail"].lower()
+
+
+def test_availability_excludes_past_slots_today() -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-availability-{uuid4().hex[:8]}@example.com",
+            "phone": "+46700000010",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Availability Slot {uuid4().hex[:8]}",
+            "duration_minutes": 30,
+            "price": "180.00",
+            "description": "Used for availability checks",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    stockholm_tz = ZoneInfo("Europe/Stockholm")
+    today = date.today()
+    response = client.get(
+        "/api/v1/availability",
+        params={
+            "barber_id": barber_id,
+            "service_id": service_id,
+            "date": today.isoformat(),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    slots = response.json()
+    now = datetime.now(stockholm_tz)
+    assert all(datetime.fromisoformat(slot["start"]).astimezone(stockholm_tz) >= now for slot in slots)
+
+
+def test_availability_excludes_overlapping_existing_bookings() -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-overlap-availability-{uuid4().hex[:8]}@example.com",
+            "phone": "+46700000011",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Overlap Availability {uuid4().hex[:8]}",
+            "duration_minutes": 30,
+            "price": "220.00",
+            "description": "Used for overlap availability checks",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    target_date = "2026-10-22"
+    appointment_payload = {
+        "barber_id": barber_id,
+        "service_id": service_id,
+        "customer_name": "Overlap Customer",
+        "customer_phone": "+46700000012",
+        "customer_email": "overlap@example.com",
+        "starts_at": f"{target_date}T10:00:00+02:00",
+        "ends_at": f"{target_date}T10:30:00+02:00",
+    }
+
+    create_response = client.post("/api/v1/appointments", json=appointment_payload)
+    assert create_response.status_code == 200, create_response.text
+
+    availability_response = client.get(
+        "/api/v1/availability",
+        params={"barber_id": barber_id, "service_id": service_id, "date": target_date},
+    )
+
+    assert availability_response.status_code == 200, availability_response.text
+    slot_starts = [slot["start"] for slot in availability_response.json()]
+    assert all("2026-10-22T10:00:00+02:00" != slot_start for slot_start in slot_starts)
+    assert all("2026-10-22T10:30:00+02:00" != slot_start for slot_start in slot_starts)
+
+
+def test_availability_releases_slot_after_cancellation() -> None:
+    barber_response = client.post(
+        "/api/v1/barbers",
+        json={
+            "name": f"Barber {uuid4().hex[:8]}",
+            "email": f"barber-cancel-availability-{uuid4().hex[:8]}@example.com",
+            "phone": "+46700000013",
+        },
+    )
+    barber_id = barber_response.json()["id"]
+
+    service_response = client.post(
+        "/api/v1/services",
+        json={
+            "name": f"Cancelled Slot {uuid4().hex[:8]}",
+            "duration_minutes": 30,
+            "price": "250.00",
+            "description": "Slot should reopen after cancellation",
+        },
+    )
+    service_id = service_response.json()["id"]
+
+    target_date = "2026-10-23"
+    appointment_payload = {
+        "barber_id": barber_id,
+        "service_id": service_id,
+        "customer_name": "Cancelled Customer",
+        "customer_phone": "+46700000014",
+        "customer_email": "cancelled@example.com",
+        "starts_at": f"{target_date}T11:00:00+02:00",
+        "ends_at": f"{target_date}T11:30:00+02:00",
+    }
+
+    create_response = client.post("/api/v1/appointments", json=appointment_payload)
+    assert create_response.status_code == 200, create_response.text
+
+    login_response = client.post(
+        "/api/v1/admin/login",
+        json={"username": "admin", "password": "admin123"},
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["token"]
+
+    cancel_response = client.patch(
+        f"/api/v1/appointments/{create_response.json()['id']}/cancel",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert cancel_response.status_code == 200, cancel_response.text
+
+    availability_response = client.get(
+        "/api/v1/availability",
+        params={"barber_id": barber_id, "service_id": service_id, "date": target_date},
+    )
+
+    assert availability_response.status_code == 200, availability_response.text
+    slot_starts = [slot["start"] for slot in availability_response.json()]
+    assert f"{target_date}T11:00:00+02:00" in slot_starts
 
 
 def test_admin_login_with_wrong_password_fails() -> None:
