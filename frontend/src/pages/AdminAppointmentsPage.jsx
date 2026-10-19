@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 const API_BASE = 'http://localhost:8000/api/v1'
+const OPENING_HOUR = 9
+const CLOSING_HOUR = 18
+const SLOT_MINUTES = 30
+const SLOT_HEIGHT = 32
 
 const formatDateLabel = (dateValue) =>
   new Date(`${dateValue}T12:00:00`).toLocaleDateString(undefined, {
@@ -10,11 +14,58 @@ const formatDateLabel = (dateValue) =>
     day: 'numeric',
   })
 
+const formatDateLong = (dateValue) =>
+  new Date(`${dateValue}T12:00:00`).toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
 const formatTimeLabel = (dateValue) =>
   new Date(dateValue).toLocaleTimeString([], {
     hour: 'numeric',
     minute: '2-digit',
   })
+
+const dateKeyFromValue = (dateValue) => {
+  const value = new Date(dateValue)
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const isSameDateKey = (left, right) => dateKeyFromValue(left) === dateKeyFromValue(right)
+
+const getStartOfWeek = (anchorDate) => {
+  const copy = new Date(anchorDate)
+  copy.setHours(0, 0, 0, 0)
+  const day = copy.getDay()
+  const mondayOffset = day === 0 ? -6 : 1 - day
+  copy.setDate(copy.getDate() + mondayOffset)
+  return copy
+}
+
+const buildWeekDates = (anchorDate) => {
+  const start = getStartOfWeek(anchorDate)
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const next = new Date(start)
+    next.setDate(start.getDate() + index)
+    return { date: next, key: dateKeyFromValue(next), label: next.toLocaleDateString(undefined, { weekday: 'short' }), day: next.toLocaleDateString(undefined, { day: 'numeric' }) }
+  })
+}
+
+const getMinutesFromDate = (dateValue) => {
+  const date = new Date(dateValue)
+  return date.getHours() * 60 + date.getMinutes()
+}
+
+const getDurationMinutes = (start, end) => {
+  const diffMs = new Date(end).getTime() - new Date(start).getTime()
+  return Math.max(0, Math.round(diffMs / 60000))
+}
 
 const fetchJson = async (url, options = {}) => {
   const response = await fetch(url, {
@@ -36,6 +87,44 @@ export function AdminAppointmentsPage() {
   const [barbers, setBarbers] = useState([])
   const [appointments, setAppointments] = useState([])
   const [showCancelled, setShowCancelled] = useState(false)
+  const [viewMode, setViewMode] = useState('week')
+  const [selectedDate, setSelectedDate] = useState(new Date())
+  const [selectedAppointment, setSelectedAppointment] = useState(null)
+  const [selectedSlot, setSelectedSlot] = useState(null)
+  const [newBookingForm, setNewBookingForm] = useState({
+    barber_id: '',
+    service_id: '',
+    customer_name: '',
+    customer_phone: '',
+    customer_email: '',
+  })
+
+  const visibleAppointments = useMemo(
+    () =>
+      [...appointments]
+        .filter((appointment) => (showCancelled ? true : appointment.status !== 'cancelled'))
+        .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at)),
+    [appointments, showCancelled],
+  )
+
+  const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate])
+
+  const timeMarkers = useMemo(
+    () =>
+      Array.from({ length: (CLOSING_HOUR - OPENING_HOUR) * 2 + 1 }, (_, index) => {
+        const totalMinutes = OPENING_HOUR * 60 + index * SLOT_MINUTES
+        const hour = Math.floor(totalMinutes / 60)
+        const minutes = totalMinutes % 60
+        const label = `${String(hour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+
+        return {
+          id: `time-${index}`,
+          label,
+          minutes: totalMinutes,
+        }
+      }),
+    [],
+  )
 
   const getStatusLabel = (appointment) => {
     if (appointment.status === 'cancelled') {
@@ -50,25 +139,97 @@ export function AdminAppointmentsPage() {
     return 'Confirmed'
   }
 
+  const getNextPeriodDate = (direction) => {
+    const next = new Date(selectedDate)
+    next.setHours(0, 0, 0, 0)
+    next.setDate(next.getDate() + (viewMode === 'week' ? 7 : 1) * direction)
+    setSelectedDate(next)
+  }
+
+  const getDateRangeLabel = () => {
+    if (viewMode === 'day') {
+      return formatDateLong(dateKeyFromValue(selectedDate))
+    }
+
+    const firstDay = weekDates[0]?.date
+    const lastDay = weekDates[weekDates.length - 1]?.date
+    if (!firstDay || !lastDay) {
+      return 'This week'
+    }
+
+    return `${firstDay.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${lastDay.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+  }
+
+  const getCalendarColumns = () => {
+    if (viewMode === 'day') {
+      return barbers.map((barber) => ({
+        id: `barber-${barber.id}`,
+        type: 'barber',
+        label: barber.name,
+        key: dateKeyFromValue(selectedDate),
+        barberId: barber.id,
+        appointments: visibleAppointments.filter(
+          (item) => Number(item.barber_id) === Number(barber.id) && isSameDateKey(item.starts_at, selectedDate),
+        ),
+      }))
+    }
+
+    return weekDates.map((day) => ({
+      id: `day-${day.key}`,
+      type: 'day',
+      label: `${day.label} ${day.day}`,
+      key: day.key,
+      date: day.date,
+      appointments: visibleAppointments.filter((item) => isSameDateKey(item.starts_at, day.date)),
+    }))
+  }
+
+  const calendarColumns = useMemo(() => getCalendarColumns(), [barbers, selectedDate, viewMode, visibleAppointments])
+
+  const getAppointmentStyle = (appointment) => {
+    const startMinutes = getMinutesFromDate(appointment.starts_at)
+    const durationMinutes = getDurationMinutes(appointment.starts_at, appointment.ends_at)
+    const top = ((Math.max(startMinutes, OPENING_HOUR * 60) - OPENING_HOUR * 60) / SLOT_MINUTES) * SLOT_HEIGHT
+    const height = Math.max(((durationMinutes / SLOT_MINUTES) * SLOT_HEIGHT) - 8, 34)
+
+    return {
+      top: `${Math.max(top, 0)}px`,
+      height: `${height}px`,
+    }
+  }
+
   const isPastAppointment = (appointment) => new Date(appointment.starts_at) < new Date()
 
-  const visibleAppointments = [...appointments]
-    .filter((appointment) => (showCancelled ? true : appointment.status !== 'cancelled'))
-    .sort((left, right) => {
-      const leftUpcoming = !isPastAppointment(left)
-      const rightUpcoming = !isPastAppointment(right)
+  const openAppointmentPanel = (appointment) => {
+    setSelectedAppointment(appointment)
+    setSelectedSlot(null)
+  }
 
-      if (leftUpcoming !== rightUpcoming) {
-        return leftUpcoming ? -1 : 1
-      }
-
-      return new Date(left.starts_at) - new Date(right.starts_at)
+  const openSlotPanel = (barberId, slotStart) => {
+    const serviceId = services[0]?.id || ''
+    setSelectedSlot({ barberId, slotStart: new Date(slotStart) })
+    setSelectedAppointment(null)
+    setNewBookingForm({
+      barber_id: String(barberId),
+      service_id: String(serviceId),
+      customer_name: '',
+      customer_phone: '',
+      customer_email: '',
     })
+  }
+
+  const closePanels = () => {
+    setSelectedAppointment(null)
+    setSelectedSlot(null)
+  }
 
   const loadServices = async () => {
     const { response, data } = await fetchJson(`${API_BASE}/services`)
     if (response.ok) {
       setServices(data)
+      if (!newBookingForm.service_id && data[0]) {
+        setNewBookingForm((current) => ({ ...current, service_id: String(data[0].id) }))
+      }
     }
   }
 
@@ -76,6 +237,9 @@ export function AdminAppointmentsPage() {
     const { response, data } = await fetchJson(`${API_BASE}/barbers`)
     if (response.ok) {
       setBarbers(data)
+      if (!newBookingForm.barber_id && data[0]) {
+        setNewBookingForm((current) => ({ ...current, barber_id: String(data[0].id) }))
+      }
     }
   }
 
@@ -97,6 +261,28 @@ export function AdminAppointmentsPage() {
     loadAppointments()
   }, [adminToken, navigate])
 
+  useEffect(() => {
+    if (!services.length) {
+      return
+    }
+
+    setNewBookingForm((current) => ({
+      ...current,
+      service_id: current.service_id || String(services[0].id),
+    }))
+  }, [services])
+
+  useEffect(() => {
+    if (!barbers.length) {
+      return
+    }
+
+    setNewBookingForm((current) => ({
+      ...current,
+      barber_id: current.barber_id || String(barbers[0].id),
+    }))
+  }, [barbers])
+
   const handleCancelAppointment = async (appointmentId) => {
     if (!adminToken) {
       setAdminMessage({ type: 'error', text: 'Log in first to cancel appointments.' })
@@ -105,9 +291,7 @@ export function AdminAppointmentsPage() {
 
     const { response, data } = await fetchJson(`${API_BASE}/appointments/${appointmentId}/cancel`, {
       method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-      },
+      headers: { Authorization: `Bearer ${adminToken}` },
     })
 
     if (!response.ok) {
@@ -116,6 +300,58 @@ export function AdminAppointmentsPage() {
     }
 
     setAdminMessage({ type: 'success', text: 'Appointment cancelled.' })
+    setSelectedAppointment(null)
+    setSelectedSlot(null)
+    loadAppointments()
+  }
+
+  const handleCreateBooking = async (event) => {
+    event.preventDefault()
+
+    if (!selectedSlot) {
+      return
+    }
+
+    const service = services.find((item) => Number(item.id) === Number(newBookingForm.service_id))
+    if (!service) {
+      setAdminMessage({ type: 'error', text: 'Choose a valid service.' })
+      return
+    }
+
+    const start = new Date(selectedSlot.slotStart)
+    const end = new Date(start.getTime() + service.duration_minutes * 60000)
+
+    const payload = {
+      barber_id: Number(newBookingForm.barber_id || selectedSlot.barberId),
+      service_id: Number(newBookingForm.service_id),
+      customer_name: newBookingForm.customer_name,
+      customer_phone: newBookingForm.customer_phone,
+      customer_email: newBookingForm.customer_email || null,
+      starts_at: start.toISOString(),
+      ends_at: end.toISOString(),
+      notes: 'Booked from admin calendar',
+    }
+
+    const { response, data } = await fetchJson(`${API_BASE}/appointments`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      setAdminMessage({ type: 'error', text: data.detail || 'Could not create appointment.' })
+      return
+    }
+
+    setAdminMessage({ type: 'success', text: 'Appointment created successfully.' })
+    setSelectedSlot(null)
+    setNewBookingForm({
+      barber_id: newBookingForm.barber_id,
+      service_id: newBookingForm.service_id,
+      customer_name: '',
+      customer_phone: '',
+      customer_email: '',
+    })
     loadAppointments()
   }
 
@@ -125,6 +361,8 @@ export function AdminAppointmentsPage() {
     setAdminMessage({ type: 'success', text: 'Logged out.' })
     navigate('/admin', { replace: true })
   }
+
+  const currentTimeMinutes = new Date().getHours() * 60 + new Date().getMinutes()
 
   return (
     <div className="admin-page">
@@ -140,6 +378,22 @@ export function AdminAppointmentsPage() {
 
           <div className="admin-toolbar">
             <span className="admin-chip">Signed in as {adminUsername}</span>
+            <div className="admin-calendar-toggle" aria-label="Calendar view switcher">
+              <button
+                type="button"
+                className={viewMode === 'day' ? 'active' : ''}
+                onClick={() => setViewMode('day')}
+              >
+                Day
+              </button>
+              <button
+                type="button"
+                className={viewMode === 'week' ? 'active' : ''}
+                onClick={() => setViewMode('week')}
+              >
+                Week
+              </button>
+            </div>
             <button className="admin-secondary-button" onClick={() => setShowCancelled((current) => !current)} type="button">
               {showCancelled ? 'Hide cancelled' : 'Show cancelled'}
             </button>
@@ -156,48 +410,257 @@ export function AdminAppointmentsPage() {
                 <p className="admin-kicker">Overview</p>
                 <h2>Appointments</h2>
               </div>
+
+              <div className="admin-calendar-nav">
+                <button type="button" className="admin-secondary-button" onClick={() => getNextPeriodDate(-1)} aria-label="Previous period">
+                  ‹
+                </button>
+                <button type="button" className="admin-secondary-button" onClick={() => setSelectedDate(new Date())}>
+                  Today
+                </button>
+                <button type="button" className="admin-secondary-button" onClick={() => getNextPeriodDate(1)} aria-label="Next period">
+                  ›
+                </button>
+              </div>
             </div>
 
             {adminMessage.text && (
               <p className={`admin-status-message ${adminMessage.type}`}>{adminMessage.text}</p>
             )}
 
-            <div className="admin-appointments-list">
-              {visibleAppointments.length === 0 ? (
-                <p className="admin-empty-state">No appointments yet.</p>
-              ) : (
-                visibleAppointments.map((appointment) => {
-                  const service = services.find((item) => Number(item.id) === Number(appointment.service_id))
-                  const barber = barbers.find((item) => Number(item.id) === Number(appointment.barber_id))
-                  const statusLabel = getStatusLabel(appointment)
-                  const isPast = isPastAppointment(appointment)
+            <div className="admin-calendar-header">
+              <strong>{getDateRangeLabel()}</strong>
+            </div>
 
-                  return (
-                    <article key={appointment.id} className="admin-appointment-card">
-                      <div className="admin-appointment-card__top">
-                        <div>
-                          <p className="admin-appointment-label">Customer</p>
-                          <h3>{appointment.customer_name}</h3>
+            <div className="admin-calendar-layout">
+              <div className="admin-calendar-main">
+                <div className="admin-calendar-grid" style={{ '--calendar-columns': calendarColumns.length }}>
+                  <div className="admin-time-column">
+                    {timeMarkers.map((marker) => (
+                      <div key={marker.id} className="admin-time-label">
+                        {marker.label}
+                      </div>
+                    ))}
+                  </div>
+
+                  {calendarColumns.map((column) => {
+                    const currentDayKey = dateKeyFromValue(new Date())
+                    const currentLineTop = ((currentTimeMinutes - OPENING_HOUR * 60) / SLOT_MINUTES) * SLOT_HEIGHT
+                    const shouldShowCurrentLine =
+                      column.key === currentDayKey && currentTimeMinutes >= OPENING_HOUR * 60 && currentTimeMinutes <= CLOSING_HOUR * 60
+
+                    return (
+                      <div key={column.id} className="admin-calendar-column">
+                        <div className="admin-calendar-column__header">
+                          {column.label}
                         </div>
-                        <span className={`admin-status-badge admin-status-badge--${statusLabel.toLowerCase()}`}>
-                          {statusLabel}
+
+                        <div className="admin-slot-surface">
+                          {timeMarkers.map((marker) => (
+                            <div key={`${column.id}-${marker.id}`} className={`admin-slot-row ${marker.minutes < OPENING_HOUR * 60 || marker.minutes >= CLOSING_HOUR * 60 ? 'is-off-hours' : ''}`} />
+                          ))}
+
+                          {column.appointments.map((appointment) => {
+                            const style = getAppointmentStyle(appointment)
+                            const service = services.find((item) => Number(item.id) === Number(appointment.service_id))
+                            const barber = barbers.find((item) => Number(item.id) === Number(appointment.barber_id))
+                            const statusLabel = getStatusLabel(appointment)
+
+                            return (
+                              <button
+                                key={appointment.id}
+                                type="button"
+                                className={`admin-booking-block admin-booking-block--${appointment.status}`}
+                                style={style}
+                                onClick={() => openAppointmentPanel(appointment)}
+                              >
+                                <strong>{appointment.customer_name}</strong>
+                                <span>{service?.name || 'Appointment'} · {barber?.name || 'Barber'}</span>
+                                <small>{statusLabel}</small>
+                              </button>
+                            )
+                          })}
+
+                          {shouldShowCurrentLine && (
+                            <div
+                              className="admin-current-line"
+                              style={{ top: `${Math.max(0, currentLineTop)}px` }}
+                              aria-label="Current time line"
+                            />
+                          )}
+
+                          {viewMode === 'day' && (
+                            <div className="admin-column-rows">
+                              {timeMarkers.map((marker) => (
+                                <button
+                                  key={`${column.id}-slot-${marker.id}`}
+                                  type="button"
+                                  className="admin-empty-slot"
+                                  onClick={() => openSlotPanel(column.barberId, new Date(selectedDate).setHours(Math.floor(marker.minutes / 60), marker.minutes % 60, 0, 0))}
+                                  aria-label={`Book ${column.label} at ${marker.label}`}
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          {viewMode === 'week' && (
+                            <div className="admin-column-rows">
+                              {timeMarkers.map((marker) => (
+                                <button
+                                  key={`${column.id}-slot-${marker.id}`}
+                                  type="button"
+                                  className="admin-empty-slot"
+                                  onClick={() => openSlotPanel(barbers[0]?.id || '', new Date(column.date).setHours(Math.floor(marker.minutes / 60), marker.minutes % 60, 0, 0))}
+                                  aria-label={`Book on ${column.label} at ${marker.label}`}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {(selectedAppointment || selectedSlot) && (
+                <aside className="admin-calendar-panel">
+                  {selectedAppointment && (
+                    <>
+                      <div className="admin-panel__header admin-panel__header--stacked">
+                        <div>
+                          <p className="admin-kicker">Details</p>
+                          <h3>{selectedAppointment.customer_name}</h3>
+                        </div>
+                        <span className={`admin-status-badge admin-status-badge--${getStatusLabel(selectedAppointment).toLowerCase()}`}>
+                          {getStatusLabel(selectedAppointment)}
                         </span>
                       </div>
 
-                      <div className="admin-appointment-card__meta">
-                        <span>{service ? service.name : 'Service'} · {barber ? barber.name : 'Barber'}</span>
-                        <span>{formatDateLabel(appointment.starts_at.slice(0, 10))}</span>
-                        <span>{formatTimeLabel(appointment.starts_at)} – {formatTimeLabel(appointment.ends_at)}</span>
+                      <div className="admin-detail-list">
+                        <div>
+                          <span>Service</span>
+                          <strong>
+                            {services.find((item) => Number(item.id) === Number(selectedAppointment.service_id))?.name || 'Service'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Barber</span>
+                          <strong>
+                            {barbers.find((item) => Number(item.id) === Number(selectedAppointment.barber_id))?.name || 'Barber'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Date</span>
+                          <strong>{formatDateLong(dateKeyFromValue(selectedAppointment.starts_at))}</strong>
+                        </div>
+                        <div>
+                          <span>Time</span>
+                          <strong>{formatTimeLabel(selectedAppointment.starts_at)} – {formatTimeLabel(selectedAppointment.ends_at)}</strong>
+                        </div>
+                        <div>
+                          <span>Phone</span>
+                          <strong>{selectedAppointment.customer_phone}</strong>
+                        </div>
+                        <div>
+                          <span>Email</span>
+                          <strong>{selectedAppointment.customer_email || '—'}</strong>
+                        </div>
                       </div>
 
-                      {!isPast && appointment.status !== 'cancelled' && (
-                        <button type="button" className="admin-cancel-button" onClick={() => handleCancelAppointment(appointment.id)}>
-                          Cancel
+                      {!isPastAppointment(selectedAppointment) && selectedAppointment.status !== 'cancelled' && (
+                        <button
+                          type="button"
+                          className="admin-cancel-button admin-cancel-button--panel"
+                          onClick={() => handleCancelAppointment(selectedAppointment.id)}
+                        >
+                          Cancel appointment
                         </button>
                       )}
-                    </article>
-                  )
-                })
+                    </>
+                  )}
+
+                  {selectedSlot && (
+                    <form onSubmit={handleCreateBooking} className="admin-booking-form">
+                      <div className="admin-panel__header admin-panel__header--stacked">
+                        <div>
+                          <p className="admin-kicker">New booking</p>
+                          <h3>{formatDateLong(dateKeyFromValue(selectedSlot.slotStart))}</h3>
+                        </div>
+                      </div>
+
+                      <div className="admin-detail-list">
+                        <div>
+                          <span>Barber</span>
+                          <strong>{barbers.find((item) => Number(item.id) === Number(newBookingForm.barber_id))?.name || 'Barber'}</strong>
+                        </div>
+                        <div>
+                          <span>Time</span>
+                          <strong>{formatTimeLabel(selectedSlot.slotStart)}</strong>
+                        </div>
+                      </div>
+
+                      <label>
+                        Service
+                        <select
+                          value={newBookingForm.service_id}
+                          onChange={(event) => setNewBookingForm({ ...newBookingForm, service_id: event.target.value })}
+                        >
+                          {services.map((service) => (
+                            <option key={service.id} value={service.id}>{service.name}</option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        Barber
+                        <select
+                          value={newBookingForm.barber_id}
+                          onChange={(event) => setNewBookingForm({ ...newBookingForm, barber_id: event.target.value })}
+                        >
+                          {barbers.map((barber) => (
+                            <option key={barber.id} value={barber.id}>{barber.name}</option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        Customer name
+                        <input
+                          type="text"
+                          value={newBookingForm.customer_name}
+                          onChange={(event) => setNewBookingForm({ ...newBookingForm, customer_name: event.target.value })}
+                          placeholder="Jane Smith"
+                        />
+                      </label>
+
+                      <label>
+                        Phone number
+                        <input
+                          type="tel"
+                          value={newBookingForm.customer_phone}
+                          onChange={(event) => setNewBookingForm({ ...newBookingForm, customer_phone: event.target.value })}
+                          placeholder="+46 70 123 45 67"
+                        />
+                      </label>
+
+                      <label>
+                        Email
+                        <input
+                          type="email"
+                          value={newBookingForm.customer_email}
+                          onChange={(event) => setNewBookingForm({ ...newBookingForm, customer_email: event.target.value })}
+                          placeholder="jane@example.com"
+                        />
+                      </label>
+
+                      <div className="admin-panel-actions">
+                        <button type="button" className="admin-secondary-button" onClick={closePanels}>Close</button>
+                        <button type="submit" className="admin-primary-button">Save booking</button>
+                      </div>
+                    </form>
+                  )}
+                </aside>
               )}
             </div>
           </section>

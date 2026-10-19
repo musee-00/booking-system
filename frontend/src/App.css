@@ -999,104 +999,300 @@ button {
   color: #bbf7d0;
 }
 
-.admin-appointments-list {
-  display: grid;
-  gap: 14px;
+.admin-calendar-toggle {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px;
+  border-radius: 999px;
 }
 
-.admin-appointment-card {
+.admin-calendar-toggle button {
+  background: transparent;
+  border: none;
+  color: #d9d1c6;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-calendar-toggle button.active {
+  background: linear-gradient(135deg, rgba(217, 181, 127, 0.2), rgba(201, 154, 90, 0.24));
+  color: #f6e5c0;
+}
+
+.admin-calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-calendar-header {
+  margin-bottom: 14px;
+  color: #efe3ca;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.admin-calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.admin-calendar-main {
+  min-width: 0;
+}
+
+.admin-calendar-grid {
+  display: grid;
+  grid-template-columns: 84px repeat(var(--calendar-columns), minmax(200px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.admin-time-column {
+  display: grid;
+  grid-template-rows: repeat(19, 32px);
+  color: #d9d1c6;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding-top: 56px;
+}
+
+.admin-time-label {
+  min-height: 32px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  color: rgba(217, 209, 198, 0.75);
+}
+
+.admin-calendar-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+}
+
+.admin-calendar-column__header {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px 12px 0 0;
+  background: rgba(255, 255, 255, 0.02);
+  color: #f5efe7;
+  font-weight: 700;
+}
+
+.admin-slot-surface {
+  position: relative;
+  min-height: 608px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  background: rgba(9, 12, 18, 0.55);
+}
+
+.admin-slot-row {
+  height: 32px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.admin-slot-row.is-off-hours {
+  background: rgba(148, 163, 184, 0.04);
+}
+
+.admin-column-rows {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.admin-empty-slot {
+  display: block;
+  width: 100%;
+  height: 32px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.admin-empty-slot:hover {
+  background: rgba(217, 181, 127, 0.08);
+}
+
+.admin-booking-block {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, rgba(217, 181, 127, 0.22), rgba(201, 154, 90, 0.35));
+  color: #fff9f0;
+  padding: 8px 10px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  z-index: 2;
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.admin-booking-block--cancelled {
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.18), rgba(100, 116, 139, 0.25));
+  opacity: 0.7;
+}
+
+.admin-booking-block strong,
+.admin-booking-block span,
+.admin-booking-block small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-booking-block strong {
+  font-size: 0.82rem;
+}
+
+.admin-booking-block span,
+.admin-booking-block small {
+  font-size: 0.7rem;
+  opacity: 0.9;
+}
+
+.admin-current-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #f87171;
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.8);
+  z-index: 4;
+}
+
+.admin-calendar-panel {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px;
   padding: 18px;
   display: grid;
-  gap: 14px;
+  gap: 18px;
+  position: sticky;
+  top: 20px;
 }
 
-.admin-appointment-card__top {
-  display: flex;
+.admin-panel__header--stacked {
+  margin-bottom: 0;
   align-items: flex-start;
-  justify-content: space-between;
+}
+
+.admin-panel__header--stacked h3 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.admin-detail-list {
+  display: grid;
   gap: 12px;
 }
 
-.admin-appointment-label {
-  margin: 0 0 6px;
+.admin-detail-list div {
+  display: grid;
+  gap: 6px;
+  color: #d9d1c6;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.admin-detail-list span {
   color: #d9b57f;
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
+  font-size: 0.72rem;
   text-transform: uppercase;
+  letter-spacing: 0.08em;
   font-weight: 700;
 }
 
-.admin-appointment-card h3 {
-  margin: 0;
-  font-size: 1.4rem;
+.admin-detail-list strong {
+  color: #f5efe7;
+  font-size: 0.96rem;
 }
 
-.admin-appointment-card__meta {
+.admin-booking-form {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-booking-form label {
+  display: grid;
+  gap: 8px;
+  color: #efe3ca;
+  font-weight: 600;
+}
+
+.admin-booking-form input,
+.admin-booking-form select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #f5efe7;
+}
+
+.admin-panel-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  color: #d9d1c6;
-  font-size: 0.88rem;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
 }
 
-.admin-status-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 32px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.admin-cancel-button--panel {
+  width: 100%;
+  margin-left: 0;
 }
 
-.admin-status-badge--confirmed {
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.26);
-  color: #bbf7d0;
-}
+@media (max-width: 1100px) {
+  .admin-calendar-layout {
+    grid-template-columns: 1fr;
+  }
 
-.admin-status-badge--cancelled {
-  background: rgba(148, 163, 184, 0.12);
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  color: #e2e8f0;
-}
-
-.admin-status-badge--completed {
-  background: rgba(217, 181, 127, 0.14);
-  border: 1px solid rgba(217, 181, 127, 0.28);
-  color: #f1d9a7;
-}
-
-.admin-empty-state {
-  margin: 0;
-  color: #d9d1c6;
-  padding: 12px 0;
+  .admin-calendar-panel {
+    position: static;
+  }
 }
 
 @media (max-width: 640px) {
   .admin-header,
   .admin-panel__header,
-  .admin-appointment-card__top {
+  .admin-toolbar,
+  .admin-calendar-nav {
     flex-direction: column;
     align-items: flex-start;
   }
 
   .admin-toolbar {
-    justify-content: flex-start;
+    width: 100%;
   }
 
   .admin-shell {
     padding-top: 22px;
   }
 
-  .admin-cancel-button {
-    width: 100%;
-    margin-left: 0;
+  .admin-calendar-grid {
+    grid-template-columns: 70px repeat(var(--calendar-columns), minmax(170px, 1fr));
+  }
+
+  .admin-calendar-column {
+    min-width: 170px;
   }
 }
