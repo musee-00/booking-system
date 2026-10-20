@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timedelta, timezone
 from unittest.mock import patch
 from uuid import uuid4
@@ -431,3 +432,54 @@ def test_trims_whitespace_and_normalises_email(admin_headers) -> None:
     assert response.status_code == 200, response.text
     assert response.json()["customer_name"] == "Alice Andersson"
     assert response.json()["customer_email"] == "Alice@example.com"
+
+
+# ------------------------------------------------- race condition (layer 2) ---
+
+
+def test_database_constraint_returns_409_when_api_check_is_bypassed(admin_headers, mock_email_sending) -> None:
+    """Simulates the race: the API check says "free" but another booking was saved first."""
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers)
+    day = future_business_day()
+
+    first = book(barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"))
+    assert first.status_code == 200, first.text
+
+    with patch("app.api.v1.router.has_overlapping_appointment", return_value=False):
+        second = book(barber["id"], service["id"], at(day, "10:15"), at(day, "10:45"), customer_name="Bob Berman")
+
+    assert second.status_code == 409, second.text
+    assert "overlapping" in second.json()["detail"].lower()
+    assert mock_email_sending.call_count == 1  # no confirmation for the rejected booking
+
+    appointments = client.get("/api/v1/appointments", headers=admin_headers).json()
+    assert [a["id"] for a in appointments if a["barber_id"] == barber["id"]] == [first.json()["id"]]
+
+
+def test_concurrent_bookings_for_same_slot_only_one_succeeds(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers)
+    day = future_business_day()
+    attempts = 10
+
+    def attempt(index: int) -> int:
+        # One client per thread, so requests really run in parallel.
+        response = TestClient(app).post(
+            "/api/v1/appointments",
+            json={
+                "barber_id": barber["id"],
+                "service_id": service["id"],
+                "customer_name": f"Customer {index}",
+                "customer_phone": "+46700000000",
+                "customer_email": f"customer{index}@example.com",
+                "starts_at": at(day, "14:00"),
+                "ends_at": at(day, "14:30"),
+            },
+        )
+        return response.status_code
+
+    with ThreadPoolExecutor(max_workers=attempts) as pool:
+        status_codes = sorted(pool.map(attempt, range(attempts)))
+
+    assert status_codes == [200] + [409] * (attempts - 1)

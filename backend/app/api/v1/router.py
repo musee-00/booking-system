@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import create_access_token, create_admin_user_record, require_admin, verify_password
@@ -165,6 +166,33 @@ def is_business_day(value: date_type) -> bool:
     return value.weekday() in {1, 2, 3, 4, 5}
 
 
+OVERLAP_CONSTRAINT = "appointments_no_overlap"
+OVERLAP_DETAIL = "This barber already has an appointment overlapping the requested time."
+
+
+def has_overlapping_appointment(db: Session, barber_id: int, starts_at: datetime, ends_at: datetime) -> bool:
+    """True if the barber has an active booking overlapping [starts_at, ends_at).
+
+    Strict < and > so back-to-back bookings (10:00-10:30, 10:30-11:00) are
+    allowed. Same rule as the '[)' range in the appointments_no_overlap constraint.
+    """
+    overlap = db.execute(
+        select(Appointment.id).where(
+            Appointment.barber_id == barber_id,
+            Appointment.status != "cancelled",
+            Appointment.starts_at < ends_at,
+            Appointment.ends_at > starts_at,
+        )
+    ).first()
+    return overlap is not None
+
+
+def is_overlap_violation(exc: IntegrityError) -> bool:
+    """True if the database rejected the row because of appointments_no_overlap."""
+    diag = getattr(exc.orig, "diag", None)
+    return getattr(diag, "constraint_name", None) == OVERLAP_CONSTRAINT
+
+
 @router.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok", "message": "Booking System API is running"}
@@ -236,16 +264,7 @@ def list_availability(
             candidate_start += timedelta(minutes=30)
             continue
 
-        overlap = db.execute(
-            select(Appointment.id).where(
-                Appointment.barber_id == barber_id,
-                Appointment.status != "cancelled",
-                Appointment.starts_at < candidate_end,
-                Appointment.ends_at > candidate_start,
-            )
-        ).first()
-
-        if overlap is None:
+        if not has_overlapping_appointment(db, barber_id, candidate_start, candidate_end):
             slots.append(
                 {
                     "barber_id": barber.id,
@@ -304,22 +323,9 @@ def create_appointment(
     if barber is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
 
-    overlap = db.execute(
-        select(Appointment.id).where(
-            Appointment.barber_id == appointment.barber_id,
-            Appointment.status != "cancelled",
-            # Strict < and > so back-to-back bookings (10:00-10:30, 10:30-11:00)
-            # are allowed. Same rule as the '[)' range in appointments_no_overlap.
-            Appointment.starts_at < ends_at,
-            Appointment.ends_at > starts_at,
-        )
-    ).first()
-
-    if overlap is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This barber already has an appointment overlapping the requested time.",
-        )
+    # Layer 1: check first, so the normal case gets a clear 409 message.
+    if has_overlapping_appointment(db, appointment.barber_id, starts_at, ends_at):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=OVERLAP_DETAIL)
 
     db_appointment = Appointment(
         barber_id=appointment.barber_id,
@@ -333,7 +339,16 @@ def create_appointment(
         notes=appointment.notes,
     )
     db.add(db_appointment)
-    db.commit()
+    # Layer 2: two requests can both pass the check above before either is saved
+    # (a race condition). The exclusion constraint then rejects the second
+    # INSERT; turn that into the same 409 instead of a 500.
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if is_overlap_violation(exc):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=OVERLAP_DETAIL) from exc
+        raise
     db.refresh(db_appointment)
 
     background_tasks.add_task(

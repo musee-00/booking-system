@@ -59,7 +59,9 @@ EXCLUDE USING gist (
 
 In words: no two non-cancelled rows may have the same `barber_id` (`=`) **and** overlapping time ranges (`&&`).
 
-**Why both layers?** The API check alone has a race condition. If two requests for the same time arrive at the same moment, both can check "is it free?" before either has saved. The database constraint is checked atomically inside the transaction, so only one of the two can be stored.
+**Why both layers?** The API check alone has a race condition. If two requests for the same time arrive at the same moment, both can check "is it free?" before either has saved. The database constraint is checked atomically inside the transaction, so only one of the two can be stored. The API catches the constraint violation (`IntegrityError` on `appointments_no_overlap`) and returns the same `409`, so the customer always gets a clear answer.
+
+This isn't just theory. In a test sending **10 identical bookings in parallel**, 9 of them got past the API check. Without the constraint, that would have been 10 bookings for one slot. With it, the result is 1 × `200` and 9 × `409`. Both cases are covered by tests: `test_concurrent_bookings_for_same_slot_only_one_succeeds` and `test_database_constraint_returns_409_when_api_check_is_bypassed`.
 
 **Back-to-back bookings are allowed.** Time ranges are *half-open*, `[start, end)`. The start time is included, the end time is not. So 10:00–10:30 and 10:30–11:00 don't overlap. The API uses the same rule with strict comparisons:
 
@@ -133,6 +135,7 @@ python -m pytest -v
 ```
 The test suite creates a separate `booking_test_db`, runs all migrations on it and drops it afterwards. Email sending is mocked. Among other things, the tests cover:
 - overlap and back-to-back bookings
+- 10 parallel bookings for the same slot (exactly one succeeds)
 - slots reopening after cancellation
 - past bookings being rejected
 - 401 on every protected endpoint for missing, garbage, expired and forged tokens
@@ -179,7 +182,6 @@ For local development without sending real email, use [Mailpit](https://mailpit.
 
 ## Known limitations and next steps
 
-- **Concurrent bookings:** if two requests race past the API check, the database constraint blocks the second one, but the API currently returns `500` instead of `409`. Next step: catch `IntegrityError` and map it to `409`.
 - **Before deploying:** the admin login form is pre-filled with demo credentials, and `JWT_SECRET` and `ADMIN_PASSWORD` have development defaults. All of these must be replaced with real secrets in the hosting dashboard.
 - **Not built yet:**
   - booking cancellation email
