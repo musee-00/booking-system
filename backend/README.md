@@ -1,35 +1,58 @@
-# Booking System Backend
+# Booking System – Backend
 
-This is the FastAPI backend for the booking system.
+FastAPI + PostgreSQL API for the barber booking system. For the project overview, the double-booking design and the endpoint list, see the [main README](../README.md).
 
 ## Setup
 
-1. Create a virtual environment:
-   ```bash
-   cd backend
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-2. Install dependencies:
-   ```bash
-   python -m pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
-3. Copy environment variables:
-   ```bash
-   cp .env.example .env
-   ```
-4. Start PostgreSQL and create the database.
-5. Run the API:
-   ```bash
-   uvicorn app.main:app --reload
-   ```
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env          # edit values, see the main README → Configuration
+alembic upgrade head          # create tables and the appointments_no_overlap constraint
+uvicorn app.main:app --reload
+```
 
-## Development
+- API docs (Swagger UI): http://localhost:8000/docs. Use **Authorize** with a token from `/api/v1/admin/login` to call admin endpoints.
+- Health check: http://localhost:8000/api/v1/health
 
-- API docs: http://localhost:8000/docs
-- Health endpoint: http://localhost:8000/api/v1/health
+## Scripts
 
-## Double-booking protection
+| Command | What it does |
+|---|---|
+| `python scripts/seed_dev_data.py` | Runs migrations and **wipes** barbers, services and appointments, then inserts demo data and the admin user |
+| `python scripts/create_admin.py` | Creates the admin user from `ADMIN_USERNAME` / `ADMIN_PASSWORD` if it doesn't exist |
 
-“Double bookings are prevented on two levels: the API checks for overlapping time ranges and returns 409 Conflict, and a PostgreSQL exclusion constraint guarantees it at the data level. The database constraint also handles race conditions when two bookings arrive at the same time.”
+## Tests
+
+```bash
+python -m pytest -v
+```
+
+`tests/conftest.py` creates a fresh `booking_test_db` using `TEST_DATABASE_ADMIN_URL`, runs all migrations on it and drops it when the session ends. Tests use dates relative to today, so they don't go stale.
+
+## Code layout
+
+| Path | Contents |
+|---|---|
+| `app/main.py` | FastAPI app and CORS |
+| `app/api/v1/router.py` | All endpoints, the availability calculation and the confirmation email |
+| `app/auth.py` | Password hashing, JWT creation and the `require_admin` dependency |
+| `app/models.py` | SQLAlchemy models |
+| `app/schemas.py` | Pydantic request and response schemas |
+| `app/core/config.py` | Settings loaded from `.env` |
+| `alembic/versions/` | Database migrations, including the exclusion constraint |
+
+## Adding an admin-only endpoint
+
+Attach the dependency to the route. Requests without a valid token get `401` before your handler runs:
+
+```python
+from app.auth import require_admin
+
+@router.delete("/services/{service_id}", dependencies=[Depends(require_admin)])
+def delete_service(service_id: int, db: Session = Depends(get_db)): ...
+```
+
+Then add the endpoint to `PROTECTED_ENDPOINTS` in `tests/test_booking_api.py`, so the missing, invalid and valid token tests cover it automatically.

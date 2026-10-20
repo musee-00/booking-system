@@ -1,16 +1,27 @@
-# React + Vite
+# Booking System – Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite app for the barber booking system. For the project overview, see the [main README](../README.md).
 
-Currently, two official plugins are available:
+## Run
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev       # http://localhost:5173 (expects the API on http://localhost:8000)
+npm run build     # production build in dist/
+npm run lint      # oxlint
+```
 
-## React Compiler
+## Pages
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Route | File | Purpose |
+|---|---|---|
+| `/` | `src/pages/CustomerPage.jsx` | Public landing page and five-step booking wizard |
+| `/admin` | `src/pages/AdminLoginPage.jsx` | Admin login; shows "session expired" when redirected after a `401` |
+| `/admin/appointments` | `src/pages/AdminAppointmentsPage.jsx` | Week and day calendar: create, view and cancel bookings |
 
-## Expanding the Oxlint configuration
+`src/components/ProtectedRoute.jsx` redirects to `/admin` when no token is stored. The token itself is checked by the API. All admin requests go through `adminFetch`, which sends the token and handles an expired session.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## Notes
+
+- The API URL is currently hardcoded as `API_BASE` in each page. It will move to an environment variable (`VITE_API_URL`) when the app is deployed.
+- Dates for the API are built from **local** date parts, not `toISOString()`, which converts to UTC and shifts the day in timezones ahead of UTC.
