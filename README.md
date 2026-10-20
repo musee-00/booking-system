@@ -2,7 +2,9 @@
 
 A full-stack booking system for barbershops, built as a self-hosted alternative to tools like Setmore. Customers book a service with a barber online. The barber manages the schedule in a password-protected admin calendar.
 
-**Live demo:** _coming soon (Render + Vercel). See [DEPLOYMENT.md](DEPLOYMENT.md) for how it's deployed._
+**Live demo:** https://north-street-booking.vercel.app
+
+> Runs on free tiers: the first request after a quiet period can take up to a minute while the API wakes up, and confirmation emails are disabled in the demo. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Stack:** Python · FastAPI · PostgreSQL · SQLAlchemy · Alembic · React · Vite · JWT · pytest
 
