@@ -1,26 +1,13 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-
-const API_BASE = 'http://localhost:8000/api/v1'
-
-const fetchJson = async (url, options = {}) => {
-  // Spread options first, then headers: otherwise options.headers would replace
-  // the merged object and drop Content-Type whenever a caller passes a header.
-  const response = await fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  })
-
-  const text = await response.text()
-  const data = text ? JSON.parse(text) : {}
-  return { response, data }
-}
+import { ADMIN_TOKEN_KEY, API_BASE, NETWORK_ERROR, fetchJson, getErrorMessage } from '../api.js'
 
 export function AdminLoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [adminUsername, setAdminUsername] = useState('admin')
-  const [adminPassword, setAdminPassword] = useState('admin123')
+  const [adminUsername, setAdminUsername] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [adminMessage, setAdminMessage] = useState(
     location.state?.message ? { type: 'error', text: location.state.message } : { type: '', text: '' },
   )
@@ -28,18 +15,28 @@ export function AdminLoginPage() {
   const handleAdminLogin = async (event) => {
     event.preventDefault()
     setAdminMessage({ type: '', text: '' })
+    setIsLoggingIn(true)
 
-    const { response, data } = await fetchJson(`${API_BASE}/admin/login`, {
-      method: 'POST',
-      body: JSON.stringify({ username: adminUsername, password: adminPassword }),
-    })
+    let result
+    try {
+      result = await fetchJson(`${API_BASE}/admin/login`, {
+        method: 'POST',
+        body: JSON.stringify({ username: adminUsername.trim(), password: adminPassword }),
+      })
+    } catch {
+      setAdminMessage({ type: 'error', text: NETWORK_ERROR })
+      return
+    } finally {
+      setIsLoggingIn(false)
+    }
 
+    const { response, data } = result
     if (!response.ok) {
-      setAdminMessage({ type: 'error', text: data.detail || 'Login failed.' })
+      setAdminMessage({ type: 'error', text: getErrorMessage(data, 'Login failed.') })
       return
     }
 
-    localStorage.setItem('booking-admin-token', data.token)
+    localStorage.setItem(ADMIN_TOKEN_KEY, data.token)
     setAdminMessage({ type: 'success', text: 'Logged in successfully.' })
     navigate('/admin/appointments')
   }
@@ -72,17 +69,17 @@ export function AdminLoginPage() {
             <form onSubmit={handleAdminLogin} className="admin-form">
               <label>
                 Username
-                <input value={adminUsername} onChange={(event) => setAdminUsername(event.target.value)} />
+                <input required autoComplete="username" value={adminUsername} onChange={(event) => setAdminUsername(event.target.value)} />
               </label>
               <label>
                 Password
-                <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} />
+                <input type="password" required autoComplete="current-password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} />
               </label>
               {adminMessage.text && (
                 <p className={`admin-status-message ${adminMessage.type}`}>{adminMessage.text}</p>
               )}
-              <button type="submit" className="admin-primary-button">
-                Log in
+              <button type="submit" className="admin-primary-button" disabled={isLoggingIn}>
+                {isLoggingIn ? 'Logging in…' : 'Log in'}
               </button>
             </form>
           </section>

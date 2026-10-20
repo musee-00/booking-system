@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-
-const API_BASE = 'http://localhost:8000/api/v1'
+import { API_BASE, fetchJson } from '../api.js'
 const NAV_ITEMS = [
   { label: 'Services', href: '#services' },
   { label: 'Team', href: '#team' },
@@ -85,19 +84,6 @@ const buildWeekDates = () => {
       day: date.toLocaleDateString(undefined, { day: 'numeric' }),
     }
   })
-}
-
-const fetchJson = async (url, options = {}) => {
-  // Spread options first, then headers: otherwise options.headers would replace
-  // the merged object and drop Content-Type whenever a caller passes a header.
-  const response = await fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  })
-
-  const text = await response.text()
-  const data = text ? JSON.parse(text) : {}
-  return { response, data }
 }
 
 const DETAIL_FIELDS = [

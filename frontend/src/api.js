@@ -1,7 +1,11 @@
 import { useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-export const API_BASE = 'http://localhost:8000/api/v1'
+// Where the backend lives. Set VITE_API_URL at build time (e.g. in Vercel) to
+// the deployed API's address; locally it falls back to the dev server.
+// Vite only exposes env variables that start with VITE_ to the browser code.
+const API_ORIGIN = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '')
+export const API_BASE = `${API_ORIGIN}/api/v1`
 export const ADMIN_TOKEN_KEY = 'booking-admin-token'
 export const NETWORK_ERROR = "Can't reach the server. Check your connection and try again."
 const SESSION_EXPIRED_MESSAGE = 'Your session has expired, please log in again'

@@ -156,13 +156,17 @@ All settings are read from `backend/.env`. See [`backend/.env.example`](backend/
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
+| `APP_ENV` | `development` or `production`. In production the API **refuses to start** with default or weak secrets, or with a localhost CORS origin |
+| `DATABASE_URL` | PostgreSQL connection string (`postgres://…` from hosts like Render is converted automatically) |
 | `TEST_DATABASE_URL`, `TEST_DATABASE_ADMIN_URL` | Test database, and a connection allowed to create and drop it |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Admin account (created on first login if missing) |
 | `JWT_SECRET` | Token signing key. **Use a long random value in production**: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime |
 | `SMTP_*` | Outgoing email server |
 | `SHOP_NAME`, `SHOP_ADDRESS` | Shown in confirmation emails |
+| `CORS_ORIGINS` | Comma-separated frontend URLs allowed to call the API, e.g. `https://your-app.vercel.app` |
+
+The frontend reads one build-time variable, `VITE_API_URL`: the backend's address, without `/api/v1`. It defaults to `http://localhost:8000`. See [`frontend/.env.example`](frontend/.env.example).
 
 ### Confirmation emails (Gmail SMTP)
 
@@ -189,7 +193,6 @@ For local development without sending real email, use [Mailpit](https://mailpit.
 
 ## Known limitations and next steps
 
-- **Before deploying:** the admin login form is pre-filled with demo credentials, and `JWT_SECRET` and `ADMIN_PASSWORD` have development defaults. All of these must be replaced with real secrets in the hosting dashboard.
 - **Not built yet:**
   - booking cancellation email
   - appointment status filter
