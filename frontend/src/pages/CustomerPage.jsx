@@ -90,6 +90,62 @@ const fetchJson = async (url, options = {}) => {
   return { response, data }
 }
 
+const DETAIL_FIELDS = [
+  { name: 'customer_name', label: 'Full name', type: 'text', autoComplete: 'name', placeholder: 'Jane Smith' },
+  { name: 'customer_phone', label: 'Phone number', type: 'tel', autoComplete: 'tel', placeholder: '+46 70 123 45 67' },
+  {
+    name: 'customer_email',
+    label: 'Email',
+    type: 'email',
+    autoComplete: 'email',
+    placeholder: 'jane@example.com',
+    hint: "We'll send your booking confirmation here.",
+    fullWidth: true,
+  },
+]
+
+const NO_SLOTS = {}
+
+const NETWORK_ERROR = "We can't reach the booking server right now. Check your connection and try again."
+
+// Same rules as the API (backend/app/schemas.py), so most mistakes are caught
+// before the request is sent.
+const PHONE_PATTERN = /^\+?[0-9(][0-9 ()-]*[0-9]$/
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const FIELD_MESSAGES = {
+  customer_name: 'Please enter your full name.',
+  customer_phone: 'Please enter a valid phone number, e.g. +46 70 123 45 67.',
+  customer_email: 'Please enter a valid email address, e.g. jane@example.com.',
+}
+
+const validateBookingForm = (values) => {
+  const errors = {}
+  const name = values.customer_name.trim()
+  const phone = values.customer_phone.trim()
+  const email = values.customer_email.trim()
+
+  if (!name || name.length > 150) errors.customer_name = FIELD_MESSAGES.customer_name
+  if (!PHONE_PATTERN.test(phone) || phone.length < 6 || phone.length > 30) errors.customer_phone = FIELD_MESSAGES.customer_phone
+  if (!EMAIL_PATTERN.test(email) || email.length > 254) errors.customer_email = FIELD_MESSAGES.customer_email
+
+  return errors
+}
+
+// FastAPI sends `detail` as a string for our own errors (400/404/409), but as a
+// list of field errors for validation failures (422). Turn the list into
+// { field: message } so it can be shown next to the right input.
+const getFieldErrors = (detail) => {
+  if (!Array.isArray(detail)) return {}
+  return Object.fromEntries(
+    detail
+      .map((error) => error.loc?.[error.loc.length - 1])
+      .filter((field) => field in FIELD_MESSAGES)
+      .map((field) => [field, FIELD_MESSAGES[field]]),
+  )
+}
+
+const getErrorMessage = (data, fallback) => (typeof data?.detail === 'string' ? data.detail : fallback)
+
 const normalizeSlot = (slot) => (
   slot
     ? {
@@ -103,7 +159,11 @@ const normalizeSlot = (slot) => (
 export function CustomerPage() {
   const [services, setServices] = useState([])
   const [barbers, setBarbers] = useState([])
-  const [slotAvailability, setSlotAvailability] = useState({})
+  // Free slots are stored with the barber/service `key` they were fetched for.
+  // If the key doesn't match the current selection, the data is still loading.
+  const [availability, setAvailability] = useState({ key: '', slots: {}, error: false })
+  const [availabilityRetry, setAvailabilityRetry] = useState(0)
+  const [loadError, setLoadError] = useState('')
   const [isBookingOpen, setIsBookingOpen] = useState(false)
   const [selectedServiceId, setSelectedServiceId] = useState('')
   const [currentStep, setCurrentStep] = useState(0)
@@ -116,7 +176,8 @@ export function CustomerPage() {
     customer_phone: '',
     customer_email: '',
   })
-  const [formErrors, setFormErrors] = useState({})
+  const [touchedFields, setTouchedFields] = useState({})
+  const [serverErrors, setServerErrors] = useState({})
   const [bookingMessage, setBookingMessage] = useState({ type: '', text: '' })
   const [customerNotice, setCustomerNotice] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -135,8 +196,6 @@ export function CustomerPage() {
 
   const isPastDay = (dateString) => new Date(`${dateString}T00:00:00`) < new Date(new Date().setHours(0, 0, 0, 0))
 
-  const getNextAvailableDate = () => weekDates.find((dayInfo) => !isPastDay(dayInfo.iso) && (slotAvailability[dayInfo.iso] || []).length > 0)
-
   const servicesWithImages = useMemo(
     () => services.map((service, index) => ({
       ...service,
@@ -145,94 +204,74 @@ export function CustomerPage() {
     [services],
   )
 
+  const availabilityKey = selectedService && selectedBarberId
+    ? `${selectedBarberId}:${selectedService.id}:${availabilityRetry}`
+    : ''
+  const isLoadingSlots = Boolean(availabilityKey) && availability.key !== availabilityKey
+  const hasAvailabilityError = !isLoadingSlots && availability.key === availabilityKey && availability.error
+  const slotAvailability = availability.key === availabilityKey ? availability.slots : NO_SLOTS
+
   useEffect(() => {
-    if (!selectedService || !barbers.length) {
-      setSlotAvailability({})
-      return
+    if (!availabilityKey) {
+      return undefined
     }
 
-    const relevantBarberIds = [Number(selectedBarberId)].filter(Boolean)
-
-    if (!relevantBarberIds.length) {
-      setSlotAvailability({})
-      return
-    }
+    // If the customer switches barber/service before this finishes, the cleanup
+    // sets `ignore` so a slow, outdated response can't overwrite the new one.
+    let ignore = false
 
     const fetchAvailability = async () => {
-      const results = await Promise.all(
-        weekDates.flatMap((dayInfo) => relevantBarberIds.map((barberId) => fetchJson(
-          `${API_BASE}/availability?barber_id=${encodeURIComponent(barberId)}&service_id=${encodeURIComponent(selectedService.id)}&date=${dayInfo.iso}`,
-        ))),
-      )
+      try {
+        const results = await Promise.all(
+          weekDates.map((dayInfo) => fetchJson(
+            `${API_BASE}/availability?barber_id=${encodeURIComponent(selectedBarberId)}&service_id=${encodeURIComponent(selectedService.id)}&date=${dayInfo.iso}`,
+          )),
+        )
 
-      const aggregated = {}
-      for (const { response, data } of results) {
-        if (!response.ok) {
-          continue
+        if (results.some(({ response }) => !response.ok)) {
+          throw new Error('Availability request failed')
         }
 
-        for (const slot of data) {
-          const dateKey = String(slot.start).slice(0, 10)
-          if (!aggregated[dateKey]) {
-            aggregated[dateKey] = []
-          }
-          aggregated[dateKey].push({ ...slot, start: new Date(slot.start), end: new Date(slot.end) })
-        }
-      }
+        const slotsByDay = Object.fromEntries(
+          weekDates.map((dayInfo, index) => [
+            dayInfo.iso,
+            results[index].data
+              .map((slot) => ({ ...slot, start: new Date(slot.start), end: new Date(slot.end) }))
+              .sort((left, right) => left.start - right.start),
+          ]),
+        )
 
-      for (const dayInfo of weekDates) {
-        aggregated[dayInfo.iso] = (aggregated[dayInfo.iso] || []).sort((left, right) => new Date(left.start) - new Date(right.start))
+        if (ignore) return
+        setAvailability({ key: availabilityKey, slots: slotsByDay, error: false })
+        // Keep the chosen day if it has free times, otherwise jump to the first day that does.
+        setSelectedDate((current) => (
+          slotsByDay[current]?.length ? current : weekDates.find((dayInfo) => slotsByDay[dayInfo.iso].length)?.iso ?? current
+        ))
+      } catch {
+        if (!ignore) setAvailability({ key: availabilityKey, slots: {}, error: true })
       }
-
-      setSlotAvailability(aggregated)
     }
 
     fetchAvailability()
-  }, [barbers, selectedBarberId, selectedService, weekDates])
+    return () => {
+      ignore = true
+    }
+  }, [availabilityKey, selectedBarberId, selectedService, weekDates])
 
   const selectedDaySlots = slotAvailability[selectedDate] || []
 
-  const validateBookingForm = (values = bookingForm) => {
-    const nextErrors = {}
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const liveErrors = useMemo(() => validateBookingForm(bookingForm), [bookingForm])
 
-    if (!values.customer_name.trim()) {
-      nextErrors.customer_name = 'Please enter your full name.'
-    }
+  // Show a field's error once the customer has left the field (or pressed
+  // Continue), not while they are still typing the first characters.
+  const getFieldError = (field) => (touchedFields[field] && liveErrors[field]) || serverErrors[field] || ''
 
-    if (!values.customer_phone.trim()) {
-      nextErrors.customer_phone = 'Please enter your phone number.'
-    }
-
-    if (!values.customer_email.trim()) {
-      nextErrors.customer_email = 'Please enter your email address.'
-    } else if (!emailPattern.test(values.customer_email.trim())) {
-      nextErrors.customer_email = 'Please enter a valid email address.'
-    }
-
-    return nextErrors
+  const updateBookingField = (field, value) => {
+    setBookingForm((current) => ({ ...current, [field]: value }))
+    setServerErrors((current) => ({ ...current, [field]: '' }))
   }
 
-  const currentStepIsValid = useMemo(() => {
-    if (currentStep === STEP.SERVICE) {
-      return Boolean(selectedService)
-    }
-
-    if (currentStep === STEP.BARBER) {
-      return Boolean(selectedBarber)
-    }
-
-    if (currentStep === STEP.TIME) {
-      return Boolean(selectedSlot)
-    }
-
-    if (currentStep === STEP.DETAILS) {
-      const nextErrors = validateBookingForm()
-      return Object.keys(nextErrors).length === 0
-    }
-
-    return true
-  }, [bookingForm.customer_name, bookingForm.customer_phone, bookingForm.customer_email, currentStep, selectedService, selectedBarber, selectedBarberId, selectedSlot])
+  const touchField = (field) => setTouchedFields((current) => ({ ...current, [field]: true }))
 
   const summaryBarber = selectedBarber?.name || 'Barber'
 
@@ -240,23 +279,26 @@ export function CustomerPage() {
   const todayIndex = today.getDay()
   const isOpenNow = todayIndex >= 2 && todayIndex <= 6 && today.getHours() >= 9 && today.getHours() < 18
 
-  const fetchServices = async () => {
-    const { response, data } = await fetchJson(`${API_BASE}/services`)
-    if (response.ok) {
-      setServices(data)
-    }
-  }
-
-  const fetchBarbers = async () => {
-    const { response, data } = await fetchJson(`${API_BASE}/barbers`)
-    if (response.ok) {
-      setBarbers(data)
-    }
-  }
-
   useEffect(() => {
-    fetchServices()
-    fetchBarbers()
+    const loadShopData = async () => {
+      try {
+        const [servicesResult, barbersResult] = await Promise.all([
+          fetchJson(`${API_BASE}/services`),
+          fetchJson(`${API_BASE}/barbers`),
+        ])
+
+        if (!servicesResult.response.ok || !barbersResult.response.ok) {
+          throw new Error('Could not load services or barbers')
+        }
+
+        setServices(servicesResult.data)
+        setBarbers(barbersResult.data)
+      } catch {
+        setLoadError("We couldn't load our services right now. Please refresh the page in a moment.")
+      }
+    }
+
+    loadShopData()
   }, [])
 
   const resetBookingWizard = () => {
@@ -265,7 +307,8 @@ export function CustomerPage() {
     setSelectedBarberProfile(null)
     setSelectedSlot(null)
     setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
-    setFormErrors({})
+    setTouchedFields({})
+    setServerErrors({})
     setBookingMessage({ type: '', text: '' })
     setCurrentStep(0)
     setSelectedDate(formatDateValue(new Date(Date.now() + 86400000)))
@@ -283,34 +326,19 @@ export function CustomerPage() {
     setSelectedBarberProfile(null)
     setSelectedSlot(null)
     setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
-    setFormErrors({})
+    setTouchedFields({})
+    setServerErrors({})
     setBookingMessage({ type: '', text: '' })
     setCurrentStep(!serviceId ? STEP.SERVICE : !barberId ? STEP.BARBER : STEP.TIME)
     setSelectedDate(formatDateValue(new Date(Date.now() + 86400000)))
     setIsBookingOpen(true)
   }
 
-  useEffect(() => {
-    if (!selectedService || !weekDates.length) {
-      return
-    }
-
-    const nextAvailable = getNextAvailableDate()
-    if (nextAvailable && (slotAvailability[selectedDate] || []).length === 0) {
-      setSelectedDate(nextAvailable.iso)
-    }
-  }, [selectedDate, selectedService, slotAvailability, weekDates])
-
-  const handleNextStep = () => {
-    if (!currentStepIsValid) return
-    setCurrentStep((previous) => Math.min(previous + 1, WIZARD_STEPS.length - 1))
-  }
-
   const handleDetailsContinue = () => {
-    const errors = validateBookingForm()
-    setFormErrors(errors)
+    // Mark every field as touched so all remaining errors become visible.
+    setTouchedFields({ customer_name: true, customer_phone: true, customer_email: true })
 
-    if (Object.keys(errors).length > 0) {
+    if (Object.keys(liveErrors).length > 0) {
       return
     }
 
@@ -338,6 +366,7 @@ export function CustomerPage() {
   const handleSlotSelect = (slot) => {
     const normalizedSlot = normalizeSlot(slot)
     setSelectedSlot(normalizedSlot)
+    setBookingMessage({ type: '', text: '' })
     setCurrentStep(STEP.DETAILS)
   }
 
@@ -350,9 +379,9 @@ export function CustomerPage() {
     const payload = {
       barber_id: Number(selectedSlot.barber_id || selectedBarberId),
       service_id: Number(selectedService.id),
-      customer_name: bookingForm.customer_name,
-      customer_phone: bookingForm.customer_phone,
-      customer_email: bookingForm.customer_email,
+      customer_name: bookingForm.customer_name.trim(),
+      customer_phone: bookingForm.customer_phone.trim(),
+      customer_email: bookingForm.customer_email.trim(),
       starts_at: new Date(selectedSlot.start).toISOString(),
       ends_at: new Date(selectedSlot.end).toISOString(),
       notes: 'Booked via customer portal',
@@ -361,18 +390,39 @@ export function CustomerPage() {
     setIsSubmitting(true)
     setBookingMessage({ type: '', text: '' })
 
-    const { response, data } = await fetchJson(`${API_BASE}/appointments`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
+    let result
+    try {
+      result = await fetchJson(`${API_BASE}/appointments`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    } catch {
+      setBookingMessage({ type: 'error', text: NETWORK_ERROR })
+      return
+    } finally {
+      setIsSubmitting(false)
+    }
 
-    setIsSubmitting(false)
+    const { response, data } = result
+
+    if (response.status === 409) {
+      // Someone else got this time first: go back, refresh the slots, pick again.
+      setSelectedSlot(null)
+      setAvailabilityRetry((count) => count + 1)
+      setCurrentStep(STEP.TIME)
+      setBookingMessage({ type: 'error', text: 'Sorry, that time was just booked by someone else. Please choose another time.' })
+      return
+    }
+
+    const fieldErrors = response.status === 422 ? getFieldErrors(data.detail) : {}
+    if (Object.keys(fieldErrors).length > 0) {
+      setServerErrors(fieldErrors)
+      setCurrentStep(STEP.DETAILS)
+      return
+    }
 
     if (!response.ok) {
-      const message = response.status === 409
-        ? 'That slot was just taken. Please choose another one.'
-        : data.detail || 'Booking could not be completed.'
-      setBookingMessage({ type: 'error', text: message })
+      setBookingMessage({ type: 'error', text: getErrorMessage(data, 'Your booking could not be completed. Please try again.') })
       return
     }
 
@@ -436,6 +486,8 @@ export function CustomerPage() {
               <p className="section-kicker">Services</p>
               <h2>Cut, refine, repeat.</h2>
             </div>
+
+            {loadError && <p className="status-message error" role="alert">{loadError}</p>}
 
             <div className="service-list">
               {servicesWithImages.map((service) => (
@@ -725,11 +777,26 @@ export function CustomerPage() {
                 <div className="slot-panel modal-slot-panel">
                   <div className="slot-panel__header">
                     <h3>{formatDateLabel(selectedDate)}</h3>
-                    <span>{selectedDaySlots.length} openings</span>
+                    <span>{isLoadingSlots ? 'Loading…' : `${selectedDaySlots.length} openings`}</span>
                   </div>
 
-                  {selectedDaySlots.length === 0 ? (
-                    <p className="empty-state">No available slots on this day.</p>
+                  {bookingMessage.text && (
+                    <p className={`status-message ${bookingMessage.type}`} role="alert">{bookingMessage.text}</p>
+                  )}
+
+                  {isLoadingSlots ? (
+                    <p className="empty-state" aria-live="polite">Finding free times…</p>
+                  ) : hasAvailabilityError ? (
+                    <div className="status-message error" role="alert">
+                      <p>We couldn't load free times. Check your connection and try again.</p>
+                      <button type="button" className="secondary-button" onClick={() => setAvailabilityRetry((count) => count + 1)}>
+                        Try again
+                      </button>
+                    </div>
+                  ) : Object.values(slotAvailability).every((daySlots) => daySlots.length === 0) ? (
+                    <p className="empty-state">No free times with {selectedBarber?.name || 'this barber'} in the next 7 days. Try another barber.</p>
+                  ) : selectedDaySlots.length === 0 ? (
+                    <p className="empty-state">No free times on this day. Pick another day above.</p>
                   ) : (
                     <div className="slot-grid">
                       {selectedDaySlots.map((slot, index) => {
@@ -772,55 +839,44 @@ export function CustomerPage() {
                   <h2>Your details</h2>
                 </div>
 
-                <div className="modal-form-grid">
-                  <label>
-                    Full name
-                    <input
-                      type="text"
-                      value={bookingForm.customer_name}
-                      onChange={(event) => {
-                        setBookingForm({ ...bookingForm, customer_name: event.target.value })
-                        setFormErrors((current) => ({ ...current, customer_name: '' }))
-                      }}
-                      placeholder="Jane Smith"
-                    />
-                    {formErrors.customer_name && <span className="field-error">{formErrors.customer_name}</span>}
-                  </label>
+                <form
+                  className="modal-form-grid"
+                  noValidate
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    handleDetailsContinue()
+                  }}
+                >
+                  {DETAIL_FIELDS.map((field) => {
+                    const error = getFieldError(field.name)
+                    const errorId = `${field.name}-error`
 
-                  <label>
-                    Phone number
-                    <input
-                      type="tel"
-                      value={bookingForm.customer_phone}
-                      onChange={(event) => {
-                        setBookingForm({ ...bookingForm, customer_phone: event.target.value })
-                        setFormErrors((current) => ({ ...current, customer_phone: '' }))
-                      }}
-                      placeholder="+46 70 123 45 67"
-                    />
-                    {formErrors.customer_phone && <span className="field-error">{formErrors.customer_phone}</span>}
-                  </label>
+                    return (
+                      <label key={field.name} className={field.fullWidth ? 'full-width' : undefined}>
+                        {field.label}
+                        <input
+                          type={field.type}
+                          name={field.name}
+                          autoComplete={field.autoComplete}
+                          value={bookingForm[field.name]}
+                          onChange={(event) => updateBookingField(field.name, event.target.value)}
+                          onBlur={() => touchField(field.name)}
+                          placeholder={field.placeholder}
+                          aria-invalid={Boolean(error)}
+                          aria-describedby={error ? errorId : undefined}
+                        />
+                        {error
+                          ? <span id={errorId} className="field-error" role="alert">{error}</span>
+                          : field.hint && <small className="field-hint">{field.hint}</small>}
+                      </label>
+                    )
+                  })}
 
-                  <label className="full-width">
-                    Email
-                    <input
-                      type="email"
-                      required
-                      value={bookingForm.customer_email}
-                      onChange={(event) => {
-                        setBookingForm({ ...bookingForm, customer_email: event.target.value })
-                        setFormErrors((current) => ({ ...current, customer_email: '' }))
-                      }}
-                      placeholder="jane@example.com"
-                    />
-                    {formErrors.customer_email && <span className="field-error">{formErrors.customer_email}</span>}
-                  </label>
-                </div>
-
-                <div className="booking-actions">
-                  <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
-                  <button type="button" className="primary-button" onClick={handleDetailsContinue} disabled={!currentStepIsValid}>Continue</button>
-                </div>
+                  <div className="booking-actions full-width">
+                    <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
+                    <button type="submit" className="primary-button">Continue</button>
+                  </div>
+                </form>
               </div>
             )}
 
