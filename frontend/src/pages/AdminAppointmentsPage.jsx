@@ -6,6 +6,11 @@ const OPENING_HOUR = 9
 const CLOSING_HOUR = 18
 const SLOT_MINUTES = 30
 const SLOT_HEIGHT = 32
+// Same opening days as the API (is_business_day): Tuesday-Saturday.
+// JavaScript's getDay() counts Sunday as 0, so Tue-Sat is 2-6.
+const OPEN_WEEKDAYS = [2, 3, 4, 5, 6]
+
+const isClosedDay = (dateValue) => !OPEN_WEEKDAYS.includes(new Date(dateValue).getDay())
 
 const formatDateLabel = (dateValue) =>
   new Date(`${dateValue}T12:00:00`).toLocaleDateString(undefined, {
@@ -189,7 +194,8 @@ export function AdminAppointmentsPage() {
 
   const getDateRangeLabel = () => {
     if (viewMode === 'day') {
-      return formatDateLong(dateKeyFromValue(selectedDate))
+      const label = formatDateLong(dateKeyFromValue(selectedDate))
+      return isClosedDay(selectedDate) ? `${label} · Closed` : label
     }
 
     const firstDay = weekDates[0]?.date
@@ -568,6 +574,7 @@ export function AdminAppointmentsPage() {
                     <div key={`header-${headerColumn.id || headerColumn.key}`} className="admin-calendar-header-cell">
                       <span>{headerColumn.label || headerColumn.day || 'Day'}</span>
                       <strong>{headerColumn.day || headerColumn.label?.split(' ')[1] || '1'}</strong>
+                      {viewMode === 'week' && isClosedDay(headerColumn.date) && <small className="admin-closed-label">Closed</small>}
                     </div>
                   ))}
 
@@ -650,10 +657,13 @@ export function AdminAppointmentsPage() {
                               const slotStart = new Date(viewMode === 'day' ? selectedDate : column.date)
                               slotStart.setHours(Math.floor(marker.minutes / 60), marker.minutes % 60, 0, 0)
 
-                              // Past slots can't be booked (the API rejects them), so render
-                              // a plain shaded cell instead of a clickable button.
-                              if (slotStart < now) {
-                                return <div key={`${column.id}-slot-${marker.id}`} className="admin-empty-slot is-past" aria-hidden="true" />
+                              // Slots the API would reject (past, closed day, or starting at
+                              // closing time) are plain shaded cells, not clickable buttons.
+                              const isUnavailable = slotStart < now
+                                || isClosedDay(slotStart)
+                                || marker.minutes >= CLOSING_HOUR * 60
+                              if (isUnavailable) {
+                                return <div key={`${column.id}-slot-${marker.id}`} className="admin-empty-slot is-unavailable" aria-hidden="true" />
                               }
 
                               const barberId = viewMode === 'day' ? column.barberId : barbers[0]?.id || ''

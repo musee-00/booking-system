@@ -1406,9 +1406,18 @@ button {
   background: rgba(217, 181, 127, 0.08);
 }
 
-.admin-empty-slot.is-past {
+.admin-empty-slot.is-unavailable {
   cursor: default;
   background: rgba(15, 23, 42, 0.35);
+}
+
+.admin-closed-label {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .admin-booking-block {
