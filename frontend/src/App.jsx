@@ -4,6 +4,7 @@ import './App.css'
 import { ProtectedRoute } from './components/ProtectedRoute.jsx'
 import { AdminAppointmentsPage } from './pages/AdminAppointmentsPage.jsx'
 import { AdminLoginPage } from './pages/AdminLoginPage.jsx'
+import { AdminTeamPage } from './pages/AdminTeamPage.jsx'
 import { CustomerPage } from './pages/CustomerPage.jsx'
 
 class ErrorBoundary extends Component {
@@ -46,6 +47,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <AdminAppointmentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/team"
+            element={
+              <ProtectedRoute>
+                <AdminTeamPage />
               </ProtectedRoute>
             }
           />

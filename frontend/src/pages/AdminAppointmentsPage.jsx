@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-
-const API_BASE = 'http://localhost:8000/api/v1'
+import { ADMIN_TOKEN_KEY, API_BASE, NETWORK_ERROR, fetchJson, useAdminFetch } from '../api.js'
 const OPENING_HOUR = 9
 const CLOSING_HOUR = 18
 const SLOT_MINUTES = 30
@@ -89,19 +88,6 @@ const getReadableTextColor = (hexColor) => {
   return luminance > 0.62 ? '#111827' : '#fff9f0'
 }
 
-const fetchJson = async (url, options = {}) => {
-  // Spread options first, then headers: otherwise options.headers would replace
-  // the merged object and drop Content-Type whenever a caller passes a header.
-  const response = await fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  })
-
-  const text = await response.text()
-  const data = text ? JSON.parse(text) : {}
-  return { response, data }
-}
-
 // FastAPI sends `detail` as a string for our own errors, but as a list of
 // field errors for validation failures (422). Never render the raw list.
 const FIELD_LABELS = { customer_name: 'name', customer_phone: 'phone number', customer_email: 'email' }
@@ -115,13 +101,10 @@ const getErrorMessage = (data, fallback) => {
   return fallback
 }
 
-const NETWORK_ERROR = "Can't reach the server. Check your connection and try again."
-
-const SESSION_EXPIRED_MESSAGE = 'Your session has expired, please log in again'
-
 export function AdminAppointmentsPage() {
   const navigate = useNavigate()
-  const [adminToken, setAdminToken] = useState(localStorage.getItem('booking-admin-token') || '')
+  const adminFetch = useAdminFetch()
+  const [adminToken, setAdminToken] = useState(localStorage.getItem(ADMIN_TOKEN_KEY) || '')
   const [adminUsername, setAdminUsername] = useState('admin')
   const [adminMessage, setAdminMessage] = useState({ type: '', text: '' })
   const [services, setServices] = useState([])
@@ -154,6 +137,11 @@ export function AdminAppointmentsPage() {
   )
 
   const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate])
+
+  // Inactive barbers/services are kept so existing bookings show the right
+  // name and colour, but new bookings can only use active ones.
+  const activeBarbers = useMemo(() => barbers.filter((barber) => barber.active), [barbers])
+  const activeServices = useMemo(() => services.filter((service) => service.active), [services])
 
   const timeMarkers = useMemo(
     () =>
@@ -209,16 +197,20 @@ export function AdminAppointmentsPage() {
 
   const getCalendarColumns = () => {
     if (viewMode === 'day') {
-      return barbers.map((barber) => ({
-        id: `barber-${barber.id}`,
-        type: 'barber',
-        label: barber.name,
-        key: dateKeyFromValue(selectedDate),
-        barberId: barber.id,
-        appointments: visibleAppointments.filter(
-          (item) => Number(item.barber_id) === Number(barber.id) && isSameDateKey(item.starts_at, selectedDate),
-        ),
-      }))
+      return barbers
+        .map((barber) => ({
+          id: `barber-${barber.id}`,
+          type: 'barber',
+          label: barber.active ? barber.name : `${barber.name} (inactive)`,
+          key: dateKeyFromValue(selectedDate),
+          barberId: barber.id,
+          active: barber.active,
+          appointments: visibleAppointments.filter(
+            (item) => Number(item.barber_id) === Number(barber.id) && isSameDateKey(item.starts_at, selectedDate),
+          ),
+        }))
+        // An inactive barber only gets a column if they have bookings that day.
+        .filter((column) => column.active || column.appointments.length > 0)
     }
 
     return weekDates.map((day) => ({
@@ -298,7 +290,7 @@ export function AdminAppointmentsPage() {
   }
 
   const openSlotPanel = (barberId, slotStart) => {
-    const serviceId = services[0]?.id || ''
+    const serviceId = activeServices[0]?.id || ''
     setSelectedSlot({ barberId, slotStart: new Date(slotStart) })
     setBookingFormError('')
     setSelectedAppointment(null)
@@ -316,47 +308,20 @@ export function AdminAppointmentsPage() {
     setSelectedSlot(null)
   }
 
-  // Every admin-only request goes through here. A 401 means the token is
-  // missing, expired or forged: drop it and send the user back to log in.
-  const adminFetch = async (url, options = {}) => {
-    const result = await fetchJson(url, {
-      ...options,
-      headers: { ...(options.headers || {}), Authorization: `Bearer ${adminToken}` },
-    })
-
-    if (result.response.status === 401) {
-      localStorage.removeItem('booking-admin-token')
-      navigate('/admin', { replace: true, state: { message: SESSION_EXPIRED_MESSAGE } })
-    }
-
-    return result
-  }
-
+  // Admin lists include inactive barbers/services (see activeBarbers above).
   const loadServices = async () => {
-    const { response, data } = await fetchJson(`${API_BASE}/services`)
-    if (response.ok) {
-      setServices(data)
-      if (!newBookingForm.service_id && data[0]) {
-        setNewBookingForm((current) => ({ ...current, service_id: String(data[0].id) }))
-      }
-    }
+    const { response, data } = await adminFetch('/admin/services')
+    if (response.ok) setServices(data)
   }
 
   const loadBarbers = async () => {
-    const { response, data } = await fetchJson(`${API_BASE}/barbers`)
-    if (response.ok) {
-      setBarbers(data)
-      if (!newBookingForm.barber_id && data[0]) {
-        setNewBookingForm((current) => ({ ...current, barber_id: String(data[0].id) }))
-      }
-    }
+    const { response, data } = await adminFetch('/admin/barbers')
+    if (response.ok) setBarbers(data)
   }
 
   const loadAppointments = async () => {
-    const { response, data } = await adminFetch(`${API_BASE}/appointments`)
-    if (response.ok) {
-      setAppointments(data)
-    }
+    const { response, data } = await adminFetch('/appointments')
+    if (response.ok) setAppointments(data)
   }
 
   useEffect(() => {
@@ -371,28 +336,6 @@ export function AdminAppointmentsPage() {
   }, [adminToken, navigate])
 
   useEffect(() => {
-    if (!services.length) {
-      return
-    }
-
-    setNewBookingForm((current) => ({
-      ...current,
-      service_id: current.service_id || String(services[0].id),
-    }))
-  }, [services])
-
-  useEffect(() => {
-    if (!barbers.length) {
-      return
-    }
-
-    setNewBookingForm((current) => ({
-      ...current,
-      barber_id: current.barber_id || String(barbers[0].id),
-    }))
-  }, [barbers])
-
-  useEffect(() => {
     const intervalId = window.setInterval(() => setNow(new Date()), 60_000)
     return () => window.clearInterval(intervalId)
   }, [])
@@ -403,7 +346,7 @@ export function AdminAppointmentsPage() {
       return
     }
 
-    const { response, data } = await adminFetch(`${API_BASE}/appointments/${appointmentId}/cancel`, {
+    const { response, data } = await adminFetch(`/appointments/${appointmentId}/cancel`, {
       method: 'PATCH',
     })
 
@@ -478,7 +421,7 @@ export function AdminAppointmentsPage() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('booking-admin-token')
+    localStorage.removeItem(ADMIN_TOKEN_KEY)
     setAdminToken('')
     setAdminMessage({ type: 'success', text: 'Logged out.' })
     navigate('/admin', { replace: true })
@@ -516,6 +459,7 @@ export function AdminAppointmentsPage() {
                 Week
               </button>
             </div>
+            <Link to="/admin/team" className="admin-secondary-button">Team &amp; services</Link>
             <Link to="/" className="admin-secondary-button">Customer page</Link>
             <button className="admin-secondary-button" onClick={() => setShowCancelled((current) => !current)} type="button">
               {showCancelled ? 'Hide cancelled' : 'Show cancelled'}
@@ -661,12 +605,13 @@ export function AdminAppointmentsPage() {
                               // closing time) are plain shaded cells, not clickable buttons.
                               const isUnavailable = slotStart < now
                                 || isClosedDay(slotStart)
+                                || column.active === false
                                 || marker.minutes >= CLOSING_HOUR * 60
                               if (isUnavailable) {
                                 return <div key={`${column.id}-slot-${marker.id}`} className="admin-empty-slot is-unavailable" aria-hidden="true" />
                               }
 
-                              const barberId = viewMode === 'day' ? column.barberId : barbers[0]?.id || ''
+                              const barberId = viewMode === 'day' ? column.barberId : activeBarbers[0]?.id || ''
                               return (
                                 <button
                                   key={`${column.id}-slot-${marker.id}`}
@@ -768,7 +713,7 @@ export function AdminAppointmentsPage() {
                           value={newBookingForm.service_id}
                           onChange={(event) => setNewBookingForm({ ...newBookingForm, service_id: event.target.value })}
                         >
-                          {services.map((service) => (
+                          {activeServices.map((service) => (
                             <option key={service.id} value={service.id}>{service.name}</option>
                           ))}
                         </select>
@@ -780,7 +725,7 @@ export function AdminAppointmentsPage() {
                           value={newBookingForm.barber_id}
                           onChange={(event) => setNewBookingForm({ ...newBookingForm, barber_id: event.target.value })}
                         >
-                          {barbers.map((barber) => (
+                          {activeBarbers.map((barber) => (
                             <option key={barber.id} value={barber.id}>{barber.name}</option>
                           ))}
                         </select>
