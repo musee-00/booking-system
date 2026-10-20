@@ -19,7 +19,8 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
 - Log in with a JWT-based admin login.
 - Use a calendar with week and day views and one colour per barber.
 - Create and cancel bookings from the calendar. A cancelled time becomes bookable again right away.
-- Past time slots are greyed out. Completed and cancelled appointments are hidden by default, with toggles to show them.
+- Past time slots, closed days (Sun/Mon) and closing time are greyed out. Completed and cancelled appointments are hidden by default, with toggles to show them.
+- Manage the team and the service menu on a **Team & services** page: add, edit, and deactivate or reactivate barbers and services. Deactivating hides them from customers but keeps booking history.
 
 ---
 
