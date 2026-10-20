@@ -97,6 +97,21 @@ const fetchJson = async (url, options = {}) => {
   return { response, data }
 }
 
+// FastAPI sends `detail` as a string for our own errors, but as a list of
+// field errors for validation failures (422). Never render the raw list.
+const FIELD_LABELS = { customer_name: 'name', customer_phone: 'phone number', customer_email: 'email' }
+
+const getErrorMessage = (data, fallback) => {
+  if (typeof data?.detail === 'string') return data.detail
+  if (Array.isArray(data?.detail)) {
+    const fields = data.detail.map((error) => FIELD_LABELS[error.loc?.[error.loc.length - 1]]).filter(Boolean)
+    if (fields.length) return `Please check the customer's ${fields.join(' and ')}.`
+  }
+  return fallback
+}
+
+const NETWORK_ERROR = "Can't reach the server. Check your connection and try again."
+
 const SESSION_EXPIRED_MESSAGE = 'Your session has expired, please log in again'
 
 export function AdminAppointmentsPage() {
@@ -114,6 +129,7 @@ export function AdminAppointmentsPage() {
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [selectedAppointment, setSelectedAppointment] = useState(null)
   const [selectedSlot, setSelectedSlot] = useState(null)
+  const [bookingFormError, setBookingFormError] = useState('')
   const [newBookingForm, setNewBookingForm] = useState({
     barber_id: '',
     service_id: '',
@@ -278,6 +294,7 @@ export function AdminAppointmentsPage() {
   const openSlotPanel = (barberId, slotStart) => {
     const serviceId = services[0]?.id || ''
     setSelectedSlot({ barberId, slotStart: new Date(slotStart) })
+    setBookingFormError('')
     setSelectedAppointment(null)
     setNewBookingForm({
       barber_id: String(barberId),
@@ -385,7 +402,7 @@ export function AdminAppointmentsPage() {
     })
 
     if (!response.ok) {
-      setAdminMessage({ type: 'error', text: data.detail || 'Cancellation failed.' })
+      setAdminMessage({ type: 'error', text: getErrorMessage(data, 'Cancellation failed.') })
       return
     }
 
@@ -404,7 +421,7 @@ export function AdminAppointmentsPage() {
 
     const service = services.find((item) => Number(item.id) === Number(newBookingForm.service_id))
     if (!service) {
-      setAdminMessage({ type: 'error', text: 'Choose a valid service.' })
+      setBookingFormError('Choose a valid service.')
       return
     }
 
@@ -414,22 +431,31 @@ export function AdminAppointmentsPage() {
     const payload = {
       barber_id: Number(newBookingForm.barber_id || selectedSlot.barberId),
       service_id: Number(newBookingForm.service_id),
-      customer_name: newBookingForm.customer_name,
-      customer_phone: newBookingForm.customer_phone,
-      customer_email: newBookingForm.customer_email || null,
+      customer_name: newBookingForm.customer_name.trim(),
+      customer_phone: newBookingForm.customer_phone.trim(),
+      customer_email: newBookingForm.customer_email.trim(),
       starts_at: start.toISOString(),
       ends_at: end.toISOString(),
       notes: 'Booked from admin calendar',
     }
 
-    const { response, data } = await fetchJson(`${API_BASE}/appointments`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${adminToken}` },
-      body: JSON.stringify(payload),
-    })
+    setBookingFormError('')
 
+    let result
+    try {
+      result = await fetchJson(`${API_BASE}/appointments`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    } catch {
+      setBookingFormError(NETWORK_ERROR)
+      return
+    }
+
+    const { response, data } = result
     if (!response.ok) {
-      setAdminMessage({ type: 'error', text: data.detail || 'Could not create appointment.' })
+      // Shown inside the side panel, next to the form the admin is filling in.
+      setBookingFormError(getErrorMessage(data, 'Could not create appointment.'))
       return
     }
 
@@ -754,6 +780,8 @@ export function AdminAppointmentsPage() {
                         Customer name
                         <input
                           type="text"
+                          required
+                          maxLength={150}
                           value={newBookingForm.customer_name}
                           onChange={(event) => setNewBookingForm({ ...newBookingForm, customer_name: event.target.value })}
                           placeholder="Jane Smith"
@@ -764,6 +792,11 @@ export function AdminAppointmentsPage() {
                         Phone number
                         <input
                           type="tel"
+                          required
+                          minLength={6}
+                          maxLength={30}
+                          pattern="\+?[0-9\(][0-9 \(\)\-]*[0-9]"
+                          title="Digits, spaces, +, - and ( ), e.g. +46 70 123 45 67"
                           value={newBookingForm.customer_phone}
                           onChange={(event) => setNewBookingForm({ ...newBookingForm, customer_phone: event.target.value })}
                           placeholder="+46 70 123 45 67"
@@ -771,14 +804,20 @@ export function AdminAppointmentsPage() {
                       </label>
 
                       <label>
-                        Email
+                        Email (for the confirmation)
                         <input
                           type="email"
+                          required
+                          maxLength={254}
                           value={newBookingForm.customer_email}
                           onChange={(event) => setNewBookingForm({ ...newBookingForm, customer_email: event.target.value })}
                           placeholder="jane@example.com"
                         />
                       </label>
+
+                      {bookingFormError && (
+                        <p className="admin-status-message error" role="alert">{bookingFormError}</p>
+                      )}
 
                       <div className="admin-panel-actions">
                         <button type="button" className="admin-secondary-button" onClick={closePanels}>Close</button>
