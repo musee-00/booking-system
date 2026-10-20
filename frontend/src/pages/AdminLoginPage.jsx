@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 const API_BASE = 'http://localhost:8000/api/v1'
 
 const fetchJson = async (url, options = {}) => {
+  // Spread options first, then headers: otherwise options.headers would replace
+  // the merged object and drop Content-Type whenever a caller passes a header.
   const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   })
 
   const text = await response.text()
@@ -16,9 +18,12 @@ const fetchJson = async (url, options = {}) => {
 
 export function AdminLoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [adminUsername, setAdminUsername] = useState('admin')
   const [adminPassword, setAdminPassword] = useState('admin123')
-  const [adminMessage, setAdminMessage] = useState({ type: '', text: '' })
+  const [adminMessage, setAdminMessage] = useState(
+    location.state?.message ? { type: 'error', text: location.state.message } : { type: '', text: '' },
+  )
 
   const handleAdminLogin = async (event) => {
     event.preventDefault()

@@ -85,15 +85,19 @@ const getReadableTextColor = (hexColor) => {
 }
 
 const fetchJson = async (url, options = {}) => {
+  // Spread options first, then headers: otherwise options.headers would replace
+  // the merged object and drop Content-Type whenever a caller passes a header.
   const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   })
 
   const text = await response.text()
   const data = text ? JSON.parse(text) : {}
   return { response, data }
 }
+
+const SESSION_EXPIRED_MESSAGE = 'Your session has expired, please log in again'
 
 export function AdminAppointmentsPage() {
   const navigate = useNavigate()
@@ -285,6 +289,22 @@ export function AdminAppointmentsPage() {
     setSelectedSlot(null)
   }
 
+  // Every admin-only request goes through here. A 401 means the token is
+  // missing, expired or forged: drop it and send the user back to log in.
+  const adminFetch = async (url, options = {}) => {
+    const result = await fetchJson(url, {
+      ...options,
+      headers: { ...(options.headers || {}), Authorization: `Bearer ${adminToken}` },
+    })
+
+    if (result.response.status === 401) {
+      localStorage.removeItem('booking-admin-token')
+      navigate('/admin', { replace: true, state: { message: SESSION_EXPIRED_MESSAGE } })
+    }
+
+    return result
+  }
+
   const loadServices = async () => {
     const { response, data } = await fetchJson(`${API_BASE}/services`)
     if (response.ok) {
@@ -306,7 +326,7 @@ export function AdminAppointmentsPage() {
   }
 
   const loadAppointments = async () => {
-    const { response, data } = await fetchJson(`${API_BASE}/appointments`)
+    const { response, data } = await adminFetch(`${API_BASE}/appointments`)
     if (response.ok) {
       setAppointments(data)
     }
@@ -351,9 +371,8 @@ export function AdminAppointmentsPage() {
       return
     }
 
-    const { response, data } = await fetchJson(`${API_BASE}/appointments/${appointmentId}/cancel`, {
+    const { response, data } = await adminFetch(`${API_BASE}/appointments/${appointmentId}/cancel`, {
       method: 'PATCH',
-      headers: { Authorization: `Bearer ${adminToken}` },
     })
 
     if (!response.ok) {

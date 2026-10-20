@@ -78,9 +78,11 @@ const buildWeekDates = () => {
 }
 
 const fetchJson = async (url, options = {}) => {
+  // Spread options first, then headers: otherwise options.headers would replace
+  // the merged object and drop Content-Type whenever a caller passes a header.
   const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   })
 
   const text = await response.text()
