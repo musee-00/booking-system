@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -29,6 +29,7 @@ class Barber(Base):
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     color: Mapped[str | None] = mapped_column(String(20), nullable=True, default="#d9b57f")
+    active: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="barber")

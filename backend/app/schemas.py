@@ -26,6 +26,18 @@ class ServiceRead(ServiceBase):
     created_at: datetime
 
 
+# PATCH schemas: every field is optional, and only the fields actually sent are
+# changed (the endpoint uses model_dump(exclude_unset=True)). Required columns are
+# typed without `| None`, so sending e.g. {"name": null} is rejected with 422.
+# (Pydantic doesn't validate defaults, so leaving a field out is still allowed.)
+class ServiceUpdate(BaseModel):
+    name: str = Field(default=None, min_length=1, max_length=150)
+    duration_minutes: int = Field(default=None, gt=0)
+    price: Decimal = Field(default=None, ge=0)
+    description: str | None = None
+    active: bool = None
+
+
 class BarberBase(BaseModel):
     name: str
     email: str | None = None
@@ -44,7 +56,19 @@ class BarberRead(BarberBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    active: bool
     created_at: datetime
+
+
+class BarberUpdate(BaseModel):
+    name: str = Field(default=None, min_length=1, max_length=150)
+    email: str | None = None
+    phone: str | None = None
+    role: str | None = None
+    bio: str | None = None
+    photo_url: str | None = None
+    color: str | None = None
+    active: bool = None
 
 
 class AppointmentBase(BaseModel):

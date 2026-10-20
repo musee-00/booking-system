@@ -21,8 +21,10 @@ from app.schemas import (
     AppointmentRead,
     BarberCreate,
     BarberRead,
+    BarberUpdate,
     ServiceCreate,
     ServiceRead,
+    ServiceUpdate,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -193,6 +195,21 @@ def has_overlapping_appointment(db: Session, barber_id: int, starts_at: datetime
     return overlap is not None
 
 
+def commit_or_conflict(db: Session, detail: str) -> None:
+    """Commit, turning a unique-constraint violation (duplicate name/email) into 409."""
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
+
+
+def apply_update(record: Barber | Service, changes: BarberUpdate | ServiceUpdate) -> None:
+    """PATCH semantics: only fields the client actually sent are changed."""
+    for field, value in changes.model_dump(exclude_unset=True).items():
+        setattr(record, field, value)
+
+
 def is_overlap_violation(exc: IntegrityError) -> bool:
     """True if the database rejected the row because of appointments_no_overlap."""
     diag = getattr(exc.orig, "diag", None)
@@ -204,32 +221,69 @@ def health_check() -> dict[str, str]:
     return {"status": "ok", "message": "Booking System API is running"}
 
 
+# Public lists only show active barbers/services: inactive ones are "soft deleted".
 @router.get("/barbers", response_model=list[BarberRead])
 def list_barbers(db: Session = Depends(get_db)) -> list[Barber]:
-    return db.scalars(select(Barber).order_by(Barber.created_at.desc())).all()
+    return db.scalars(select(Barber).where(Barber.active.is_(True)).order_by(Barber.created_at.desc())).all()
 
 
 @router.post("/barbers", response_model=BarberRead, dependencies=[Depends(require_admin)])
 def create_barber(barber: BarberCreate, db: Session = Depends(get_db)) -> Barber:
     db_barber = Barber(**barber.model_dump())
     db.add(db_barber)
-    db.commit()
+    commit_or_conflict(db, "A barber with this email already exists.")
     db.refresh(db_barber)
     return db_barber
 
 
+@router.patch("/barbers/{barber_id}", response_model=BarberRead, dependencies=[Depends(require_admin)])
+def update_barber(barber_id: int, changes: BarberUpdate, db: Session = Depends(get_db)) -> Barber:
+    barber = db.get(Barber, barber_id)
+    if barber is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
+
+    apply_update(barber, changes)
+    commit_or_conflict(db, "A barber with this email already exists.")
+    db.refresh(barber)
+    return barber
+
+
 @router.get("/services", response_model=list[ServiceRead])
 def list_services(db: Session = Depends(get_db)) -> list[Service]:
-    return db.scalars(select(Service).order_by(Service.created_at.desc())).all()
+    return db.scalars(select(Service).where(Service.active.is_(True)).order_by(Service.created_at.desc())).all()
 
 
 @router.post("/services", response_model=ServiceRead, dependencies=[Depends(require_admin)])
 def create_service(service: ServiceCreate, db: Session = Depends(get_db)) -> Service:
     db_service = Service(**service.model_dump())
     db.add(db_service)
-    db.commit()
+    commit_or_conflict(db, "A service with this name already exists.")
     db.refresh(db_service)
     return db_service
+
+
+@router.patch("/services/{service_id}", response_model=ServiceRead, dependencies=[Depends(require_admin)])
+def update_service(service_id: int, changes: ServiceUpdate, db: Session = Depends(get_db)) -> Service:
+    service = db.get(Service, service_id)
+    if service is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found.")
+
+    apply_update(service, changes)
+    commit_or_conflict(db, "A service with this name already exists.")
+    db.refresh(service)
+    return service
+
+
+# Admin lists include inactive barbers/services, so they can be managed and
+# old appointments can still show the right name.
+@router.get("/admin/barbers", response_model=list[BarberRead], dependencies=[Depends(require_admin)])
+def list_all_barbers(db: Session = Depends(get_db)) -> list[Barber]:
+    return db.scalars(select(Barber).order_by(Barber.created_at.desc())).all()
+
+
+@router.get("/admin/services", response_model=list[ServiceRead], dependencies=[Depends(require_admin)])
+def list_all_services(db: Session = Depends(get_db)) -> list[Service]:
+    return db.scalars(select(Service).order_by(Service.created_at.desc())).all()
 
 
 @router.get("/appointments", response_model=list[AppointmentRead], dependencies=[Depends(require_admin)])
@@ -245,11 +299,11 @@ def list_availability(
     db: Session = Depends(get_db),
 ) -> list[dict[str, str | int]]:
     service = db.get(Service, service_id)
-    if service is None:
+    if service is None or not service.active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found.")
 
     barber = db.get(Barber, barber_id)
-    if barber is None:
+    if barber is None or not barber.active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
 
     if not is_business_day(date):
@@ -328,6 +382,11 @@ def create_appointment(
     barber = db.get(Barber, appointment.barber_id)
     if barber is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
+
+    if not service.active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This service is no longer available.")
+    if not barber.active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This barber is no longer taking bookings.")
 
     # Layer 1: check first, so the normal case gets a clear 409 message.
     if has_overlapping_appointment(db, appointment.barber_id, starts_at, ends_at):

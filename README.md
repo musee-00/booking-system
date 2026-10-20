@@ -82,17 +82,23 @@ The check is a single FastAPI dependency, `require_admin`. It is attached to eac
 | Method | Endpoint | Access | Returns |
 |---|---|---|---|
 | GET | `/api/v1/health` | Public | Status |
-| GET | `/api/v1/services` | Public | Services |
-| GET | `/api/v1/barbers` | Public | Barber profiles |
+| GET | `/api/v1/services` | Public | Active services |
+| GET | `/api/v1/barbers` | Public | Active barber profiles |
 | GET | `/api/v1/availability?barber_id&service_id&date` | Public | Free slots (times and barber only) |
 | POST | `/api/v1/appointments` | Public | The booking just created |
 | POST | `/api/v1/admin/login` | Public | JWT |
 | GET | `/api/v1/appointments` | **Admin** | All bookings, including customer contact details |
+| GET | `/api/v1/admin/barbers` | **Admin** | All barbers, including inactive |
+| GET | `/api/v1/admin/services` | **Admin** | All services, including inactive |
 | POST | `/api/v1/barbers` | **Admin** | Created barber |
 | POST | `/api/v1/services` | **Admin** | Created service |
+| PATCH | `/api/v1/barbers/{id}` | **Admin** | Updated barber (partial update, including `active`) |
+| PATCH | `/api/v1/services/{id}` | **Admin** | Updated service (partial update, including `active`) |
 | PATCH | `/api/v1/appointments/{id}/cancel` | **Admin** | Cancelled booking |
 
-No public endpoint returns another customer's personal data, and a test checks this. Interactive API docs with an **Authorize** button are available at `http://localhost:8000/docs`.
+No public endpoint returns another customer's personal data, and a test checks this.
+
+**Barbers and services are never deleted, only deactivated** (`active = false`). Appointments reference them with foreign keys, so a hard delete would either fail or destroy booking history. An inactive barber or service is hidden from customers and can't be booked, but old appointments keep it, and it can be reactivated. Interactive API docs with an **Authorize** button are available at `http://localhost:8000/docs`.
 
 ---
 

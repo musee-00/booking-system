@@ -329,6 +329,16 @@ def make_protected_request(endpoint: str, headers: dict[str, str], admin_headers
             json={"name": f"Protected {uuid4().hex[:8]}", "duration_minutes": 30, "price": "100.00"},
             headers=headers,
         )
+    if endpoint == "update barber":
+        barber = create_barber(admin_headers)
+        return client.patch(f"/api/v1/barbers/{barber['id']}", json={"role": "Senior Barber"}, headers=headers)
+    if endpoint == "update service":
+        service = create_service(admin_headers)
+        return client.patch(f"/api/v1/services/{service['id']}", json={"price": "250.00"}, headers=headers)
+    if endpoint == "list all barbers":
+        return client.get("/api/v1/admin/barbers", headers=headers)
+    if endpoint == "list all services":
+        return client.get("/api/v1/admin/services", headers=headers)
     if endpoint == "cancel appointment":
         barber = create_barber(admin_headers)
         service = create_service(admin_headers)
@@ -339,7 +349,16 @@ def make_protected_request(endpoint: str, headers: dict[str, str], admin_headers
     raise ValueError(endpoint)
 
 
-PROTECTED_ENDPOINTS = ["list appointments", "create barber", "create service", "cancel appointment"]
+PROTECTED_ENDPOINTS = [
+    "list appointments",
+    "create barber",
+    "create service",
+    "update barber",
+    "update service",
+    "list all barbers",
+    "list all services",
+    "cancel appointment",
+]
 
 
 def expired_token() -> str:
@@ -505,3 +524,95 @@ def test_concurrent_bookings_for_same_slot_only_one_succeeds(admin_headers) -> N
         status_codes = sorted(pool.map(attempt, range(attempts)))
 
     assert status_codes == [200] + [409] * (attempts - 1)
+
+
+# ------------------------------------------- managing barbers and services ---
+
+
+def test_update_service_changes_only_sent_fields(admin_headers) -> None:
+    service = create_service(admin_headers, duration_minutes=30, price="200.00", description="Original")
+
+    response = client.patch(f"/api/v1/services/{service['id']}", json={"price": "250.00"}, headers=admin_headers)
+
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["price"] == "250.00"
+    assert updated["name"] == service["name"]
+    assert updated["duration_minutes"] == 30
+    assert updated["description"] == "Original"
+
+
+@pytest.mark.parametrize("changes", [{"name": None}, {"name": ""}, {"duration_minutes": 0}, {"price": "-1"}])
+def test_update_service_rejects_invalid_values(changes, admin_headers) -> None:
+    service = create_service(admin_headers)
+    response = client.patch(f"/api/v1/services/{service['id']}", json=changes, headers=admin_headers)
+    assert response.status_code == 422, response.text
+
+
+def test_update_unknown_barber_or_service_returns_404(admin_headers) -> None:
+    assert client.patch("/api/v1/barbers/999999", json={"role": "x"}, headers=admin_headers).status_code == 404
+    assert client.patch("/api/v1/services/999999", json={"price": "1"}, headers=admin_headers).status_code == 404
+
+
+def test_duplicate_service_name_returns_409(admin_headers) -> None:
+    first = create_service(admin_headers)
+    second = create_service(admin_headers)
+
+    create_duplicate = client.post(
+        "/api/v1/services",
+        json={"name": first["name"], "duration_minutes": 30, "price": "100.00"},
+        headers=admin_headers,
+    )
+    rename_to_duplicate = client.patch(
+        f"/api/v1/services/{second['id']}", json={"name": first["name"]}, headers=admin_headers,
+    )
+
+    assert create_duplicate.status_code == 409, create_duplicate.text
+    assert rename_to_duplicate.status_code == 409, rename_to_duplicate.text
+
+
+def test_deactivated_barber_is_hidden_and_not_bookable_but_history_is_kept(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers)
+    day = future_business_day()
+    existing = book(barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"))
+    assert existing.status_code == 200, existing.text
+
+    response = client.patch(f"/api/v1/barbers/{barber['id']}", json={"active": False}, headers=admin_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["active"] is False
+
+    # Hidden from customers, visible to the admin.
+    assert barber["id"] not in [b["id"] for b in client.get("/api/v1/barbers").json()]
+    assert barber["id"] in [b["id"] for b in client.get("/api/v1/admin/barbers", headers=admin_headers).json()]
+
+    # Not bookable.
+    availability_response = client.get(
+        "/api/v1/availability",
+        params={"barber_id": barber["id"], "service_id": service["id"], "date": day.isoformat()},
+    )
+    assert availability_response.status_code == 404
+    new_booking = book(barber["id"], service["id"], at(day, "11:00"), at(day, "11:30"))
+    assert new_booking.status_code == 400, new_booking.text
+    assert "no longer" in new_booking.json()["detail"]
+
+    # The existing appointment is kept.
+    appointments = client.get("/api/v1/appointments", headers=admin_headers).json()
+    assert existing.json()["id"] in [a["id"] for a in appointments]
+
+    # Reactivating makes the barber bookable again.
+    client.patch(f"/api/v1/barbers/{barber['id']}", json={"active": True}, headers=admin_headers)
+    assert book(barber["id"], service["id"], at(day, "11:00"), at(day, "11:30")).status_code == 200
+
+
+def test_deactivated_service_is_hidden_and_not_bookable(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers)
+    day = future_business_day()
+
+    client.patch(f"/api/v1/services/{service['id']}", json={"active": False}, headers=admin_headers)
+
+    assert service["id"] not in [s["id"] for s in client.get("/api/v1/services").json()]
+    assert service["id"] in [s["id"] for s in client.get("/api/v1/admin/services", headers=admin_headers).json()]
+    booking = book(barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"))
+    assert booking.status_code == 400, booking.text
