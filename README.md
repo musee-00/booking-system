@@ -1,5 +1,7 @@
 # North Street – Barber Booking System
 
+[![CI](https://github.com/musee-00/booking-system/actions/workflows/ci.yml/badge.svg)](https://github.com/musee-00/booking-system/actions/workflows/ci.yml)
+
 A full-stack booking system for barbershops, built as a self-hosted alternative to tools like Setmore. Customers book a service with a barber online. The barber manages the schedule in a password-protected admin calendar.
 
 **Live demo:** https://north-street-booking.vercel.app
@@ -142,7 +144,7 @@ cd backend
 source .venv/bin/activate
 python -m pytest -v
 ```
-The test suite creates a separate `booking_test_db`, runs all migrations on it and drops it afterwards. Email sending is mocked. Among other things, the tests cover:
+The test suite creates a separate `booking_test_db`, runs all migrations on it and drops it afterwards. **GitHub Actions** runs the same tests against a real PostgreSQL 16 on every push, plus the frontend lint and build ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Email sending is mocked. Among other things, the tests cover:
 - overlap and back-to-back bookings
 - 10 parallel bookings for the same slot (exactly one succeeds)
 - slots reopening after cancellation
