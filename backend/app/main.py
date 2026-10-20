@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import router as v1_router
+from app.core.config import settings
+
+settings.check_production_safety()
 
 app = FastAPI(
     title="Booking System API",
@@ -11,11 +14,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
-    allow_credentials=True,
+    allow_origins=settings.cors_origin_list,
+    # Admin auth uses an Authorization header, not cookies, so no credentials needed.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
