@@ -5,11 +5,11 @@ from decimal import Decimal, ROUND_HALF_UP
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token, create_admin_user_record, get_admin_user_from_token, verify_password
+from app.auth import create_access_token, create_admin_user_record, require_admin, verify_password
 from app.core.config import settings
 from app.db.database import get_db
 from app.models import AdminUser, Appointment, Barber, Service
@@ -175,7 +175,7 @@ def list_barbers(db: Session = Depends(get_db)) -> list[Barber]:
     return db.scalars(select(Barber).order_by(Barber.created_at.desc())).all()
 
 
-@router.post("/barbers", response_model=BarberRead)
+@router.post("/barbers", response_model=BarberRead, dependencies=[Depends(require_admin)])
 def create_barber(barber: BarberCreate, db: Session = Depends(get_db)) -> Barber:
     db_barber = Barber(**barber.model_dump())
     db.add(db_barber)
@@ -189,7 +189,7 @@ def list_services(db: Session = Depends(get_db)) -> list[Service]:
     return db.scalars(select(Service).order_by(Service.created_at.desc())).all()
 
 
-@router.post("/services", response_model=ServiceRead)
+@router.post("/services", response_model=ServiceRead, dependencies=[Depends(require_admin)])
 def create_service(service: ServiceCreate, db: Session = Depends(get_db)) -> Service:
     db_service = Service(**service.model_dump())
     db.add(db_service)
@@ -198,7 +198,7 @@ def create_service(service: ServiceCreate, db: Session = Depends(get_db)) -> Ser
     return db_service
 
 
-@router.get("/appointments", response_model=list[AppointmentRead])
+@router.get("/appointments", response_model=list[AppointmentRead], dependencies=[Depends(require_admin)])
 def list_appointments(db: Session = Depends(get_db)) -> list[Appointment]:
     return db.scalars(select(Appointment).order_by(Appointment.starts_at.asc())).all()
 
@@ -240,8 +240,8 @@ def list_availability(
             select(Appointment.id).where(
                 Appointment.barber_id == barber_id,
                 Appointment.status != "cancelled",
-                Appointment.starts_at <= candidate_end,
-                Appointment.ends_at >= candidate_start,
+                Appointment.starts_at < candidate_end,
+                Appointment.ends_at > candidate_start,
             )
         ).first()
 
@@ -308,8 +308,10 @@ def create_appointment(
         select(Appointment.id).where(
             Appointment.barber_id == appointment.barber_id,
             Appointment.status != "cancelled",
-            Appointment.starts_at <= ends_at,
-            Appointment.ends_at >= starts_at,
+            # Strict < and > so back-to-back bookings (10:00-10:30, 10:30-11:00)
+            # are allowed. Same rule as the '[)' range in appointments_no_overlap.
+            Appointment.starts_at < ends_at,
+            Appointment.ends_at > starts_at,
         )
     ).first()
 
@@ -360,24 +362,12 @@ def admin_login(payload: AdminLoginRequest, db: Session = Depends(get_db)) -> Ad
     return AdminLoginResponse(token=token)
 
 
-@router.patch("/appointments/{appointment_id}/cancel", response_model=AppointmentRead)
-def cancel_appointment(
-    appointment_id: int,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    db: Session = Depends(get_db),
-) -> Appointment:
-    if authorization is None or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token.")
-
-    token = authorization.split(" ", 1)[1].strip()
-    try:
-        admin_user = get_admin_user_from_token(db, token)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired admin token.") from exc
-
-    if admin_user.username != settings.admin_username:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized admin account.")
-
+@router.patch(
+    "/appointments/{appointment_id}/cancel",
+    response_model=AppointmentRead,
+    dependencies=[Depends(require_admin)],
+)
+def cancel_appointment(appointment_id: int, db: Session = Depends(get_db)) -> Appointment:
     appointment = db.get(Appointment, appointment_id)
     if appointment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")

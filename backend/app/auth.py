@@ -4,10 +4,16 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.database import get_db
 from app.models import AdminUser
+
+# auto_error=False so we can return our own 401 message instead of FastAPI's 403.
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def hash_password(password: str) -> str:
@@ -51,3 +57,27 @@ def get_admin_user_from_token(db: Session, token: str) -> AdminUser:
         raise ValueError("Admin user not found")
 
     return user
+
+
+def require_admin(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> AdminUser:
+    """FastAPI dependency: add `Depends(require_admin)` to any admin-only route."""
+    unauthorized_headers = {"WWW-Authenticate": "Bearer"}
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token.",
+            headers=unauthorized_headers,
+        )
+
+    try:
+        return get_admin_user_from_token(db, credentials.credentials)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired admin token.",
+            headers=unauthorized_headers,
+        ) from exc
