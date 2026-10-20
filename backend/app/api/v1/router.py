@@ -54,7 +54,8 @@ def send_booking_confirmation_email(
     ends_at: datetime,
     price: str,
 ) -> None:
-    if not customer_email:
+    # Email is optional: with no SMTP_HOST configured, bookings work without it.
+    if not customer_email or not settings.smtp_host:
         return
 
     starts_at_stockholm = starts_at.astimezone(STOCKHOLM_TZ)
@@ -152,7 +153,9 @@ def send_booking_confirmation_email(
     message.add_alternative(html, subtype="html")
 
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+        # Timeout so an unreachable mail server (or a host that blocks SMTP ports)
+        # fails within seconds instead of hanging the background task for minutes.
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as smtp:
             if settings.smtp_use_tls:
                 smtp.starttls()
                 if settings.smtp_username and settings.smtp_password:

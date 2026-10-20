@@ -2,7 +2,7 @@
 
 A full-stack booking system for barbershops, built as a self-hosted alternative to tools like Setmore. Customers book a service with a barber online. The barber manages the schedule in a password-protected admin calendar.
 
-**Live demo:** _coming soon (Render + Vercel)_
+**Live demo:** _coming soon (Render + Vercel). See [DEPLOYMENT.md](DEPLOYMENT.md) for how it's deployed._
 
 **Stack:** Python · FastAPI · PostgreSQL · SQLAlchemy · Alembic · React · Vite · JWT · pytest
 
@@ -191,10 +191,16 @@ For local development without sending real email, use [Mailpit](https://mailpit.
 
 ---
 
+## Deployment
+
+The API and PostgreSQL run on **Render** (defined in [`render.yaml`](render.yaml)), and the frontend on **Vercel**. Database migrations run automatically on every deploy, and in production the API refuses to start with default secrets. The step-by-step guide and the free-tier limitations (cold starts, no SMTP, 30-day database) are in [DEPLOYMENT.md](DEPLOYMENT.md).
+
+---
+
 ## Known limitations and next steps
 
 - **Not built yet:**
   - booking cancellation email
   - appointment status filter
   - frontend tests for the booking wizard
-  - deployment to Render (API + PostgreSQL) and Vercel (frontend)
+  - confirmation emails in production through an HTTP email API (free Render instances block SMTP)

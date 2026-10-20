@@ -616,3 +616,13 @@ def test_deactivated_service_is_hidden_and_not_bookable(admin_headers) -> None:
     assert service["id"] in [s["id"] for s in client.get("/api/v1/admin/services", headers=admin_headers).json()]
     booking = book(barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"))
     assert booking.status_code == 400, booking.text
+
+
+def test_confirmation_email_is_skipped_when_smtp_is_not_configured() -> None:
+    start = stockholm(future_business_day(), "10:00")
+    with patch("app.api.v1.router.settings.smtp_host", ""), patch("app.api.v1.router.smtplib.SMTP") as mock_smtp:
+        send_booking_confirmation_email(
+            booking_id=1, customer_email="dana@example.com", barber_name="Mika", service_name="Classic Cut",
+            starts_at=start, ends_at=start + timedelta(minutes=45), price="290.00",
+        )
+    mock_smtp.assert_not_called()

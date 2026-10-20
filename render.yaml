@@ -1,0 +1,51 @@
+# Render Blueprint: the backend API and its PostgreSQL database.
+# Render reads this file when you create a Blueprint from the GitHub repo.
+# See DEPLOYMENT.md for the step-by-step guide.
+
+databases:
+  - name: north-street-db
+    plan: free              # free databases expire after 30 days (see DEPLOYMENT.md)
+    region: frankfurt       # closest region to Sweden
+    databaseName: booking_db
+    user: booking_user
+    postgresMajorVersion: "16"   # same major version as local development
+
+services:
+  - type: web
+    name: north-street-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Pre-deploy commands are paid-only, so migrations run before the server
+    # starts. Alembic only applies migrations that haven't run yet, and if one
+    # fails the server doesn't start (the previous deploy keeps running).
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    autoDeploy: true        # redeploy on every push to the main branch
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.5"
+      - key: APP_ENV
+        value: production   # enables the startup safety checks in config.py
+      - key: DATABASE_URL
+        fromDatabase:
+          name: north-street-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true # Render creates a random 256-bit secret
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false         # you type it in the Render dashboard; never in git
+      - key: CORS_ORIGINS
+        sync: false         # your Vercel URL, e.g. https://north-street.vercel.app
+      # Free Render services can't use SMTP ports (25/465/587), so confirmation
+      # emails are switched off here. Bookings work normally without them.
+      - key: SMTP_HOST
+        value: ""
+      - key: SHOP_NAME
+        value: North Street Studio
+      - key: SHOP_ADDRESS
+        value: 27 North Street, Gothenburg
