@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const API_BASE = 'http://localhost:8000/api/v1'
 const NAV_ITEMS = [
@@ -29,6 +29,9 @@ const SERVICE_IMAGES = [
   'https://images.unsplash.com/photo-1521341057461-6eb5f40b07ab?auto=format&fit=crop&w=900&q=80',
 ]
 
+const SHOP_ADDRESS = '27 North Street, Gothenburg'
+const SHOP_PHONE = '+46 70 123 45 67'
+
 const WIZARD_STEPS = ['Service', 'Barber', 'Time', 'Details', 'Confirm']
 const STEP = { SERVICE: 0, BARBER: 1, TIME: 2, DETAILS: 3, CONFIRM: 4 }
 
@@ -46,6 +49,13 @@ const formatDateLabel = (dateValue) =>
   new Date(`${dateValue}T12:00:00`).toLocaleDateString(undefined, {
     weekday: 'short',
     month: 'short',
+    day: 'numeric',
+  })
+
+const formatDateLong = (dateValue) =>
+  new Date(dateValue).toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
     day: 'numeric',
   })
 
@@ -179,7 +189,9 @@ export function CustomerPage() {
   const [touchedFields, setTouchedFields] = useState({})
   const [serverErrors, setServerErrors] = useState({})
   const [bookingMessage, setBookingMessage] = useState({ type: '', text: '' })
-  const [customerNotice, setCustomerNotice] = useState('')
+  // Set after a successful booking; while set, the modal shows the success view.
+  const [confirmedBooking, setConfirmedBooking] = useState(null)
+  const successHeadingRef = useRef(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const weekDates = useMemo(() => buildWeekDates(), [])
@@ -302,6 +314,7 @@ export function CustomerPage() {
   }, [])
 
   const resetBookingWizard = () => {
+    setConfirmedBooking(null)
     setSelectedServiceId('')
     setSelectedBarberId('')
     setSelectedBarberProfile(null)
@@ -319,13 +332,15 @@ export function CustomerPage() {
 
   // The wizard can be opened from a service row, a barber profile, or the
   // generic "Book now" button. Start on the first question not yet answered.
-  const openBooking = ({ serviceId = '', barberId = '' } = {}) => {
-    setCustomerNotice('')
+  const openBooking = ({ serviceId = '', barberId = '', keepCustomerDetails = false } = {}) => {
+    setConfirmedBooking(null)
     setSelectedServiceId(String(serviceId))
     setSelectedBarberId(String(barberId))
     setSelectedBarberProfile(null)
     setSelectedSlot(null)
-    setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
+    if (!keepCustomerDetails) {
+      setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
+    }
     setTouchedFields({})
     setServerErrors({})
     setBookingMessage({ type: '', text: '' })
@@ -426,36 +441,35 @@ export function CustomerPage() {
       return
     }
 
-    const barberName = selectedBarber?.name || barbers.find((barber) => Number(barber.id) === Number(selectedSlot.barber_id))?.name || 'your barber'
-    const confirmationNotice = `Booking confirmed! See you on ${formatDateLabel(selectedDate)} at ${formatTimeLabel(selectedSlot.start)} with ${barberName}`
-
-    setCustomerNotice(confirmationNotice)
+    // Snapshot what was booked, so the summary doesn't change if the wizard state does.
+    setConfirmedBooking({
+      id: data.id,
+      serviceName: selectedService.name,
+      barberName: selectedBarber?.name || 'your barber',
+      start: new Date(data.starts_at),
+      end: new Date(data.ends_at),
+      price: selectedService.price,
+      email: data.customer_email,
+    })
     setBookingMessage({ type: '', text: '' })
-    setIsBookingOpen(false)
-    setCurrentStep(0)
   }
 
+  // Move keyboard/screen-reader focus to the success heading so it is announced.
   useEffect(() => {
-    if (!customerNotice) {
-      return undefined
-    }
+    if (confirmedBooking) successHeadingRef.current?.focus()
+  }, [confirmedBooking])
 
-    const timeoutId = window.setTimeout(() => {
-      setCustomerNotice('')
+  // Closing after a booking resets the wizard; closing mid-way keeps the progress.
+  const closeBooking = () => {
+    if (confirmedBooking) {
       resetBookingWizard()
-    }, 3000)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [customerNotice])
+    } else {
+      setIsBookingOpen(false)
+    }
+  }
 
   return (
     <div className="premium-page">
-      {customerNotice && (
-        <div className="customer-success-banner" role="status" aria-live="polite">
-          {customerNotice}
-        </div>
-      )}
-
       <header className="topbar">
         <div className="topbar__brand">
           <div className="brand-mark">NS</div>
@@ -661,266 +675,318 @@ export function CustomerPage() {
       )}
 
       {isBookingOpen && (
-        <div className="booking-modal-backdrop" onClick={() => setIsBookingOpen(false)}>
+        <div className="booking-modal-backdrop" onClick={closeBooking}>
           <div className="booking-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <p className="section-kicker section-kicker--small">Book appointment</p>
+                <p className="section-kicker section-kicker--small">{confirmedBooking ? 'Booking confirmed' : 'Book appointment'}</p>
                 <h3>
                   {selectedService?.name || 'Choose a service'}
                   {selectedBarber && currentStep > STEP.BARBER && <small className="modal-header__barber"> with {selectedBarber.name}</small>}
                 </h3>
               </div>
-              <button type="button" className="close-button" onClick={() => setIsBookingOpen(false)}>×</button>
+              <button type="button" className="close-button" onClick={closeBooking} aria-label="Close">×</button>
             </div>
 
-            <div className="booking-modal__stepper" aria-label="Booking steps">
-              {WIZARD_STEPS.map((step, index) => (
-                <div key={step} className={`modal-step ${index === currentStep ? 'active' : ''} ${index < currentStep ? 'done' : ''}`}>
-                  {index + 1}
-                  <span>{step}</span>
-                </div>
-              ))}
-            </div>
-
-            {currentStep === STEP.SERVICE && (
-              <div className="booking-step-panel">
+            {confirmedBooking && (
+              <div className="booking-step-panel booking-success">
+                <div className="booking-success__icon" aria-hidden="true">✓</div>
                 <div className="section-header small-header">
-                  <p className="section-kicker">Step 1</p>
-                  <h2>Choose a service</h2>
-                </div>
-
-                <div className="service-list">
-                  {servicesWithImages.map((service) => (
-                    <button
-                      key={service.id}
-                      type="button"
-                      className={`service-row ${String(service.id) === String(selectedServiceId) ? 'selected' : ''}`}
-                      onClick={() => handleServiceSelect(service.id)}
-                    >
-                      <div className="service-thumb" style={{ backgroundImage: `url(${service.image})` }} aria-hidden="true" />
-                      <div className="service-row__text">
-                        <strong>{service.name}</strong>
-                        {service.description && <small>{service.description}</small>}
-                        <span>{service.duration_minutes} mins · {formatPrice(service.price)}</span>
-                      </div>
-                      <span className="service-arrow">›</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="booking-actions">
-                  <button type="button" className="secondary-button" onClick={() => setIsBookingOpen(false)}>Cancel</button>
-                </div>
-              </div>
-            )}
-
-            {currentStep === STEP.BARBER && (
-              <div className="booking-step-panel">
-                <div className="section-header small-header">
-                  <p className="section-kicker">Step 2</p>
-                  <h2>Choose your barber</h2>
-                </div>
-
-                <div className="modal-barber-grid">
-                  {barbers.map((barber) => (
-                    <button
-                      key={barber.id}
-                      type="button"
-                      className={`barber-option ${String(barber.id) === String(selectedBarberId) ? 'selected' : ''}`}
-                      onClick={() => handleBarberSelect(barber.id)}
-                    >
-                      <div className="barber-option__photo">
-                        {barber.photo_url ? (
-                          <img src={barber.photo_url} alt={barber.name} />
-                        ) : (
-                          <span>{getBarberInitials(barber.name)}</span>
-                        )}
-                      </div>
-
-                      <div className="barber-option__body">
-                        <strong>{barber.name}</strong>
-                        <small>{barber.role || 'Barber'}</small>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="booking-actions">
-                  <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
-                </div>
-              </div>
-            )}
-
-            {currentStep === STEP.TIME && (
-              <div className="booking-step-panel">
-                <div className="section-header small-header">
-                  <p className="section-kicker">Step 3</p>
-                  <h2>Pick a time</h2>
-                </div>
-
-                <div className="day-picker">
-                  {weekDates.map((dayInfo) => (
-                    <button
-                      key={dayInfo.iso}
-                      type="button"
-                      className={`day-pill ${selectedDate === dayInfo.iso ? 'selected' : ''}`}
-                      onClick={() => setSelectedDate(dayInfo.iso)}
-                      disabled={isPastDay(dayInfo.iso) || (slotAvailability[dayInfo.iso] || []).length === 0}
-                    >
-                      <span>{dayInfo.label}</span>
-                      <strong>{dayInfo.day}</strong>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="slot-panel modal-slot-panel">
-                  <div className="slot-panel__header">
-                    <h3>{formatDateLabel(selectedDate)}</h3>
-                    <span>{isLoadingSlots ? 'Loading…' : `${selectedDaySlots.length} openings`}</span>
-                  </div>
-
-                  {bookingMessage.text && (
-                    <p className={`status-message ${bookingMessage.type}`} role="alert">{bookingMessage.text}</p>
-                  )}
-
-                  {isLoadingSlots ? (
-                    <p className="empty-state" aria-live="polite">Finding free times…</p>
-                  ) : hasAvailabilityError ? (
-                    <div className="status-message error" role="alert">
-                      <p>We couldn't load free times. Check your connection and try again.</p>
-                      <button type="button" className="secondary-button" onClick={() => setAvailabilityRetry((count) => count + 1)}>
-                        Try again
-                      </button>
-                    </div>
-                  ) : Object.values(slotAvailability).every((daySlots) => daySlots.length === 0) ? (
-                    <p className="empty-state">No free times with {selectedBarber?.name || 'this barber'} in the next 7 days. Try another barber.</p>
-                  ) : selectedDaySlots.length === 0 ? (
-                    <p className="empty-state">No free times on this day. Pick another day above.</p>
-                  ) : (
-                    <div className="slot-grid">
-                      {selectedDaySlots.map((slot, index) => {
-                        const normalizedSlot = normalizeSlot(slot)
-                        const slotStartKey = normalizedSlot?.start instanceof Date ? normalizedSlot.start.toISOString() : ''
-                        const isSelected = Boolean(
-                          selectedSlot
-                          && normalizedSlot
-                          && selectedSlot.start instanceof Date
-                          && normalizedSlot.start instanceof Date
-                          && selectedSlot.start.toISOString() === slotStartKey
-                          && Number(selectedSlot.barber_id) === Number(normalizedSlot.barber_id),
-                        )
-
-                        return (
-                          <button
-                            key={`${normalizedSlot?.barber_id ?? slot.barber_id}-${slotStartKey || index}`}
-                            type="button"
-                            className={`slot-button ${isSelected ? 'selected' : ''}`}
-                            onClick={() => handleSlotSelect(normalizedSlot)}
-                          >
-                            <span>{formatTimeLabel(normalizedSlot?.start ?? slot.start)} – {formatTimeLabel(normalizedSlot?.end ?? slot.end)}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="booking-actions">
-                  <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
-                </div>
-              </div>
-            )}
-
-            {currentStep === STEP.DETAILS && (
-              <div className="booking-step-panel">
-                <div className="section-header small-header">
-                  <p className="section-kicker">Step 4</p>
-                  <h2>Your details</h2>
-                </div>
-
-                <form
-                  className="modal-form-grid"
-                  noValidate
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    handleDetailsContinue()
-                  }}
-                >
-                  {DETAIL_FIELDS.map((field) => {
-                    const error = getFieldError(field.name)
-                    const errorId = `${field.name}-error`
-
-                    return (
-                      <label key={field.name} className={field.fullWidth ? 'full-width' : undefined}>
-                        {field.label}
-                        <input
-                          type={field.type}
-                          name={field.name}
-                          autoComplete={field.autoComplete}
-                          value={bookingForm[field.name]}
-                          onChange={(event) => updateBookingField(field.name, event.target.value)}
-                          onBlur={() => touchField(field.name)}
-                          placeholder={field.placeholder}
-                          aria-invalid={Boolean(error)}
-                          aria-describedby={error ? errorId : undefined}
-                        />
-                        {error
-                          ? <span id={errorId} className="field-error" role="alert">{error}</span>
-                          : field.hint && <small className="field-hint">{field.hint}</small>}
-                      </label>
-                    )
-                  })}
-
-                  <div className="booking-actions full-width">
-                    <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
-                    <button type="submit" className="primary-button">Continue</button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {currentStep === STEP.CONFIRM && (
-              <div className="booking-step-panel">
-                <div className="section-header small-header">
-                  <p className="section-kicker">Step 5</p>
-                  <h2>Confirm booking</h2>
+                  <h2 ref={successHeadingRef} tabIndex={-1}>You're booked!</h2>
+                  <p className="booking-success__lead">
+                    See you on {formatDateLong(confirmedBooking.start)} at {formatTimeLabel(confirmedBooking.start)} with {confirmedBooking.barberName}.
+                  </p>
                 </div>
 
                 <div className="confirm-card">
-                  <div className="confirm-row">
-                    <span>Service</span>
-                    <strong>{selectedService?.name}</strong>
-                  </div>
-                  <div className="confirm-row">
-                    <span>Barber</span>
-                    <strong>{summaryBarber}</strong>
-                  </div>
-                  <div className="confirm-row">
-                    <span>Date</span>
-                    <strong>{formatDateLabel(selectedDate)}</strong>
-                  </div>
-                  <div className="confirm-row">
-                    <span>Time</span>
-                    <strong>{selectedSlot ? `${formatTimeLabel(selectedSlot.start)} – ${formatTimeLabel(selectedSlot.end)}` : '—'}</strong>
-                  </div>
-                  <div className="confirm-row">
-                    <span>Customer</span>
-                    <strong>{bookingForm.customer_name}</strong>
-                  </div>
+                  {[
+                    ['Service', confirmedBooking.serviceName],
+                    ['Barber', confirmedBooking.barberName],
+                    ['Date', formatDateLong(confirmedBooking.start)],
+                    ['Time', `${formatTimeLabel(confirmedBooking.start)} – ${formatTimeLabel(confirmedBooking.end)}`],
+                    ['Price', formatPrice(confirmedBooking.price)],
+                    ['Address', SHOP_ADDRESS],
+                    ['Booking reference', `#${confirmedBooking.id}`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="confirm-row">
+                      <span>{label}</span>
+                      <strong>{value}</strong>
+                    </div>
+                  ))}
                 </div>
 
-                {bookingMessage.text && (
-                  <p className={`status-message ${bookingMessage.type}`}>{bookingMessage.text}</p>
-                )}
+                <div className="booking-success__notes">
+                  <p>
+                    A confirmation email is on its way to <strong>{confirmedBooking.email}</strong>.
+                    If you can't find it in a few minutes, check your junk or spam folder.
+                  </p>
+                  <p>Need to change or cancel? Call us on <a href={`tel:${SHOP_PHONE.replace(/\s/g, '')}`}>{SHOP_PHONE}</a>.</p>
+                </div>
 
                 <div className="booking-actions">
-                  <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
-                  <button type="button" className="primary-button" onClick={handleBookAppointment} disabled={isSubmitting || !selectedSlot || !selectedService}>
-                    {isSubmitting ? 'Confirming...' : 'Confirm booking'}
+                  <button type="button" className="secondary-button" onClick={() => openBooking({ keepCustomerDetails: true })}>
+                    Book another
                   </button>
+                  <button type="button" className="primary-button" onClick={resetBookingWizard}>Done</button>
                 </div>
               </div>
+            )}
+
+            {!confirmedBooking && (
+              <>
+                <div className="booking-modal__stepper" aria-label="Booking steps">
+                  {WIZARD_STEPS.map((step, index) => (
+                    <div key={step} className={`modal-step ${index === currentStep ? 'active' : ''} ${index < currentStep ? 'done' : ''}`}>
+                      {index + 1}
+                      <span>{step}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {currentStep === STEP.SERVICE && (
+                  <div className="booking-step-panel">
+                    <div className="section-header small-header">
+                      <p className="section-kicker">Step 1</p>
+                      <h2>Choose a service</h2>
+                    </div>
+
+                    <div className="service-list">
+                      {servicesWithImages.map((service) => (
+                        <button
+                          key={service.id}
+                          type="button"
+                          className={`service-row ${String(service.id) === String(selectedServiceId) ? 'selected' : ''}`}
+                          onClick={() => handleServiceSelect(service.id)}
+                        >
+                          <div className="service-thumb" style={{ backgroundImage: `url(${service.image})` }} aria-hidden="true" />
+                          <div className="service-row__text">
+                            <strong>{service.name}</strong>
+                            {service.description && <small>{service.description}</small>}
+                            <span>{service.duration_minutes} mins · {formatPrice(service.price)}</span>
+                          </div>
+                          <span className="service-arrow">›</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="booking-actions">
+                      <button type="button" className="secondary-button" onClick={() => setIsBookingOpen(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === STEP.BARBER && (
+                  <div className="booking-step-panel">
+                    <div className="section-header small-header">
+                      <p className="section-kicker">Step 2</p>
+                      <h2>Choose your barber</h2>
+                    </div>
+
+                    <div className="modal-barber-grid">
+                      {barbers.map((barber) => (
+                        <button
+                          key={barber.id}
+                          type="button"
+                          className={`barber-option ${String(barber.id) === String(selectedBarberId) ? 'selected' : ''}`}
+                          onClick={() => handleBarberSelect(barber.id)}
+                        >
+                          <div className="barber-option__photo">
+                            {barber.photo_url ? (
+                              <img src={barber.photo_url} alt={barber.name} />
+                            ) : (
+                              <span>{getBarberInitials(barber.name)}</span>
+                            )}
+                          </div>
+
+                          <div className="barber-option__body">
+                            <strong>{barber.name}</strong>
+                            <small>{barber.role || 'Barber'}</small>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="booking-actions">
+                      <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === STEP.TIME && (
+                  <div className="booking-step-panel">
+                    <div className="section-header small-header">
+                      <p className="section-kicker">Step 3</p>
+                      <h2>Pick a time</h2>
+                    </div>
+
+                    <div className="day-picker">
+                      {weekDates.map((dayInfo) => (
+                        <button
+                          key={dayInfo.iso}
+                          type="button"
+                          className={`day-pill ${selectedDate === dayInfo.iso ? 'selected' : ''}`}
+                          onClick={() => setSelectedDate(dayInfo.iso)}
+                          disabled={isPastDay(dayInfo.iso) || (slotAvailability[dayInfo.iso] || []).length === 0}
+                        >
+                          <span>{dayInfo.label}</span>
+                          <strong>{dayInfo.day}</strong>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="slot-panel modal-slot-panel">
+                      <div className="slot-panel__header">
+                        <h3>{formatDateLabel(selectedDate)}</h3>
+                        <span>{isLoadingSlots ? 'Loading…' : `${selectedDaySlots.length} openings`}</span>
+                      </div>
+
+                      {bookingMessage.text && (
+                        <p className={`status-message ${bookingMessage.type}`} role="alert">{bookingMessage.text}</p>
+                      )}
+
+                      {isLoadingSlots ? (
+                        <p className="empty-state" aria-live="polite">Finding free times…</p>
+                      ) : hasAvailabilityError ? (
+                        <div className="status-message error" role="alert">
+                          <p>We couldn't load free times. Check your connection and try again.</p>
+                          <button type="button" className="secondary-button" onClick={() => setAvailabilityRetry((count) => count + 1)}>
+                            Try again
+                          </button>
+                        </div>
+                      ) : Object.values(slotAvailability).every((daySlots) => daySlots.length === 0) ? (
+                        <p className="empty-state">No free times with {selectedBarber?.name || 'this barber'} in the next 7 days. Try another barber.</p>
+                      ) : selectedDaySlots.length === 0 ? (
+                        <p className="empty-state">No free times on this day. Pick another day above.</p>
+                      ) : (
+                        <div className="slot-grid">
+                          {selectedDaySlots.map((slot, index) => {
+                            const normalizedSlot = normalizeSlot(slot)
+                            const slotStartKey = normalizedSlot?.start instanceof Date ? normalizedSlot.start.toISOString() : ''
+                            const isSelected = Boolean(
+                              selectedSlot
+                              && normalizedSlot
+                              && selectedSlot.start instanceof Date
+                              && normalizedSlot.start instanceof Date
+                              && selectedSlot.start.toISOString() === slotStartKey
+                              && Number(selectedSlot.barber_id) === Number(normalizedSlot.barber_id),
+                            )
+
+                            return (
+                              <button
+                                key={`${normalizedSlot?.barber_id ?? slot.barber_id}-${slotStartKey || index}`}
+                                type="button"
+                                className={`slot-button ${isSelected ? 'selected' : ''}`}
+                                onClick={() => handleSlotSelect(normalizedSlot)}
+                              >
+                                <span>{formatTimeLabel(normalizedSlot?.start ?? slot.start)} – {formatTimeLabel(normalizedSlot?.end ?? slot.end)}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="booking-actions">
+                      <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === STEP.DETAILS && (
+                  <div className="booking-step-panel">
+                    <div className="section-header small-header">
+                      <p className="section-kicker">Step 4</p>
+                      <h2>Your details</h2>
+                    </div>
+
+                    <form
+                      className="modal-form-grid"
+                      noValidate
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        handleDetailsContinue()
+                      }}
+                    >
+                      {DETAIL_FIELDS.map((field) => {
+                        const error = getFieldError(field.name)
+                        const errorId = `${field.name}-error`
+
+                        return (
+                          <label key={field.name} className={field.fullWidth ? 'full-width' : undefined}>
+                            {field.label}
+                            <input
+                              type={field.type}
+                              name={field.name}
+                              autoComplete={field.autoComplete}
+                              value={bookingForm[field.name]}
+                              onChange={(event) => updateBookingField(field.name, event.target.value)}
+                              onBlur={() => touchField(field.name)}
+                              placeholder={field.placeholder}
+                              aria-invalid={Boolean(error)}
+                              aria-describedby={error ? errorId : undefined}
+                            />
+                            {error
+                              ? <span id={errorId} className="field-error" role="alert">{error}</span>
+                              : field.hint && <small className="field-hint">{field.hint}</small>}
+                          </label>
+                        )
+                      })}
+
+                      <div className="booking-actions full-width">
+                        <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
+                        <button type="submit" className="primary-button">Continue</button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {currentStep === STEP.CONFIRM && (
+                  <div className="booking-step-panel">
+                    <div className="section-header small-header">
+                      <p className="section-kicker">Step 5</p>
+                      <h2>Confirm booking</h2>
+                    </div>
+
+                    <div className="confirm-card">
+                      <div className="confirm-row">
+                        <span>Service</span>
+                        <strong>{selectedService?.name}</strong>
+                      </div>
+                      <div className="confirm-row">
+                        <span>Barber</span>
+                        <strong>{summaryBarber}</strong>
+                      </div>
+                      <div className="confirm-row">
+                        <span>Date</span>
+                        <strong>{formatDateLabel(selectedDate)}</strong>
+                      </div>
+                      <div className="confirm-row">
+                        <span>Time</span>
+                        <strong>{selectedSlot ? `${formatTimeLabel(selectedSlot.start)} – ${formatTimeLabel(selectedSlot.end)}` : '—'}</strong>
+                      </div>
+                      <div className="confirm-row">
+                        <span>Price</span>
+                        <strong>{selectedService ? formatPrice(selectedService.price) : '—'}</strong>
+                      </div>
+                      <div className="confirm-row">
+                        <span>Customer</span>
+                        <strong>{bookingForm.customer_name}</strong>
+                      </div>
+                    </div>
+
+                    {bookingMessage.text && (
+                      <p className={`status-message ${bookingMessage.type}`}>{bookingMessage.text}</p>
+                    )}
+
+                    <div className="booking-actions">
+                      <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
+                      <button type="button" className="primary-button" onClick={handleBookAppointment} disabled={isSubmitting || !selectedSlot || !selectedService}>
+                        {isSubmitting ? 'Confirming...' : 'Confirm booking'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
