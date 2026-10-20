@@ -70,26 +70,47 @@ export function AdminTeamPage() {
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
-  const loadAll = useCallback(async () => {
-    try {
-      const [barbersResult, servicesResult] = await Promise.all([
-        adminFetch('/admin/barbers'),
-        adminFetch('/admin/services'),
-      ])
-      if (barbersResult.response.status === 401 || servicesResult.response.status === 401) return
-      if (!barbersResult.response.ok || !servicesResult.response.ok) throw new Error('Load failed')
+  // Fetch both lists. Returns null after a 401 (useAdminFetch already redirects).
+  const fetchLists = useCallback(async () => {
+    const [barbersResult, servicesResult] = await Promise.all([
+      adminFetch('/admin/barbers'),
+      adminFetch('/admin/services'),
+    ])
+    if (barbersResult.response.status === 401 || servicesResult.response.status === 401) return null
+    if (!barbersResult.response.ok || !servicesResult.response.ok) throw new Error('Load failed')
+    return { barbers: barbersResult.data, services: servicesResult.data }
+  }, [adminFetch])
 
-      setBarbers(barbersResult.data)
-      setServices(servicesResult.data)
+  // Initial load. State is only set after the response arrives, and not at all
+  // if the page was left in the meantime.
+  useEffect(() => {
+    let ignore = false
+    fetchLists()
+      .then((lists) => {
+        if (ignore || !lists) return
+        setBarbers(lists.barbers)
+        setServices(lists.services)
+      })
+      .catch(() => {
+        if (!ignore) setLoadError(NETWORK_ERROR)
+      })
+    return () => {
+      ignore = true
+    }
+  }, [fetchLists])
+
+  // Reload after a save or (de)activation.
+  const loadAll = async () => {
+    try {
+      const lists = await fetchLists()
+      if (!lists) return
+      setBarbers(lists.barbers)
+      setServices(lists.services)
       setLoadError('')
     } catch {
       setLoadError(NETWORK_ERROR)
     }
-  }, [adminFetch])
-
-  useEffect(() => {
-    loadAll()
-  }, [loadAll])
+  }
 
   const startAdd = (kind) => {
     setEditing({ kind, id: null, values: { ...FORMS[kind].empty } })

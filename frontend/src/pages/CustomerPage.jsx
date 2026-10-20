@@ -71,6 +71,13 @@ const getBarberInitials = (name = '') => {
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('') || 'NS'
 }
 
+// Default day for the time picker. A plain function outside the component, so
+// it's only called from event handlers and lazy state, never while rendering.
+const getTomorrowValue = () => formatDateValue(new Date(Date.now() + 86400000))
+
+// Shop hours: Tue-Sat 09:00-18:00 (getDay(): Sunday = 0).
+const isShopOpenAt = (date) => date.getDay() >= 2 && date.getDay() <= 6 && date.getHours() >= 9 && date.getHours() < 18
+
 const buildWeekDates = () => {
   const start = new Date()
   start.setHours(0, 0, 0, 0)
@@ -165,7 +172,9 @@ export function CustomerPage() {
   const [currentStep, setCurrentStep] = useState(0)
   const [selectedBarberId, setSelectedBarberId] = useState('')
   const [selectedBarberProfile, setSelectedBarberProfile] = useState(null)
-  const [selectedDate, setSelectedDate] = useState(formatDateValue(new Date(Date.now() + 86400000)))
+  const [selectedDate, setSelectedDate] = useState(getTomorrowValue)
+  // Read the clock once when the page loads (for the "Open now" badge).
+  const [isOpenNow] = useState(() => isShopOpenAt(new Date()))
   const [selectedSlot, setSelectedSlot] = useState(null)
   const [bookingForm, setBookingForm] = useState({
     customer_name: '',
@@ -191,8 +200,6 @@ export function CustomerPage() {
     () => barbers.find((barber) => String(barber.id) === String(selectedBarberId)) || null,
     [barbers, selectedBarberId],
   )
-
-  const isPastDay = (dateString) => new Date(`${dateString}T00:00:00`) < new Date(new Date().setHours(0, 0, 0, 0))
 
   const servicesWithImages = useMemo(
     () => services.map((service, index) => ({
@@ -273,9 +280,6 @@ export function CustomerPage() {
 
   const summaryBarber = selectedBarber?.name || 'Barber'
 
-  const today = new Date()
-  const todayIndex = today.getDay()
-  const isOpenNow = todayIndex >= 2 && todayIndex <= 6 && today.getHours() >= 9 && today.getHours() < 18
 
   useEffect(() => {
     const loadShopData = async () => {
@@ -310,7 +314,7 @@ export function CustomerPage() {
     setServerErrors({})
     setBookingMessage({ type: '', text: '' })
     setCurrentStep(0)
-    setSelectedDate(formatDateValue(new Date(Date.now() + 86400000)))
+    setSelectedDate(getTomorrowValue())
     setIsBookingOpen(false)
     setIsSubmitting(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -331,7 +335,7 @@ export function CustomerPage() {
     setServerErrors({})
     setBookingMessage({ type: '', text: '' })
     setCurrentStep(!serviceId ? STEP.SERVICE : !barberId ? STEP.BARBER : STEP.TIME)
-    setSelectedDate(formatDateValue(new Date(Date.now() + 86400000)))
+    setSelectedDate(getTomorrowValue())
     setIsBookingOpen(true)
   }
 
@@ -812,7 +816,7 @@ export function CustomerPage() {
                           type="button"
                           className={`day-pill ${selectedDate === dayInfo.iso ? 'selected' : ''}`}
                           onClick={() => setSelectedDate(dayInfo.iso)}
-                          disabled={isPastDay(dayInfo.iso) || (slotAvailability[dayInfo.iso] || []).length === 0}
+                          disabled={(slotAvailability[dayInfo.iso] || []).length === 0}
                         >
                           <span>{dayInfo.label}</span>
                           <strong>{dayInfo.day}</strong>
