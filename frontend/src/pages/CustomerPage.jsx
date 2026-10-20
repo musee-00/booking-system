@@ -31,10 +31,14 @@ const SERVICE_IMAGES = [
 
 const WIZARD_STEPS = ['Barber', 'Time', 'Details', 'Confirm']
 
+// Build YYYY-MM-DD from local date parts. toISOString() would convert to UTC
+// and shift the day backwards in timezones ahead of UTC (e.g. Sweden).
 const formatDateValue = (date) => {
-  const next = new Date(date)
-  next.setHours(0, 0, 0, 0)
-  return next.toISOString().slice(0, 10)
+  const value = new Date(date)
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 const formatDateLabel = (dateValue) =>
