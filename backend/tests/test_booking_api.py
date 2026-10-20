@@ -8,6 +8,7 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.v1.router import send_booking_confirmation_email  # imported before any test patches it
 from app.core.config import settings
 from app.main import app
 
@@ -152,6 +153,27 @@ def test_send_booking_confirmation_email_to_customer(admin_headers, mock_email_s
     assert response.status_code == 200, response.text
     assert mock_email_sending.call_count == 1
     assert mock_email_sending.call_args.kwargs["customer_email"] == "dana@example.com"
+    assert mock_email_sending.call_args.kwargs["booking_id"] == response.json()["id"]
+
+
+def test_confirmation_email_contains_booking_reference() -> None:
+    """Renders the real email (SMTP mocked) and checks the reference is in subject and body."""
+    start = stockholm(future_business_day(), "10:00")
+    with patch("app.api.v1.router.smtplib.SMTP") as mock_smtp:
+        send_booking_confirmation_email(
+            booking_id=42,
+            customer_email="dana@example.com",
+            barber_name="Mika",
+            service_name="Classic Cut",
+            starts_at=start,
+            ends_at=start + timedelta(minutes=45),
+            price="290.00",
+        )
+
+    message = mock_smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
+    assert message["Subject"] == "Booking confirmed — Classic Cut (#42)"
+    assert "Booking reference: #42" in message.get_body(("plain",)).get_content()
+    assert "#42" in message.get_body(("html",)).get_content()
 
 
 def test_rejects_bookings_in_the_past(admin_headers) -> None:

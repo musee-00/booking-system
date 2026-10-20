@@ -44,6 +44,7 @@ def format_booking_time_range(starts_at: datetime, ends_at: datetime) -> str:
 
 
 def send_booking_confirmation_email(
+    booking_id: int,
     customer_email: str,
     barber_name: str,
     service_name: str,
@@ -72,6 +73,7 @@ def send_booking_confirmation_email(
             f"Time: {time_range}",
             f"Price: {formatted_price}",
             f"Address: {settings.shop_address}",
+            f"Booking reference: #{booking_id}",
             "",
             "We look forward to seeing you.",
             settings.shop_name,
@@ -116,8 +118,12 @@ def send_booking_confirmation_email(
                         <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{formatted_price}</td>
                       </tr>
                       <tr>
-                        <td style="padding:10px 0;"><strong>Address</strong></td>
-                        <td style="padding:10px 0; text-align:right;">{settings.shop_address}</td>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Address</strong></td>
+                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{settings.shop_address}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0;"><strong>Booking reference</strong></td>
+                        <td style="padding:10px 0; text-align:right;">#{booking_id}</td>
                       </tr>
                     </table>
                     <p style="margin:0; font-size:14px; color:#4b5563;">If you need to change your booking, please contact us directly.</p>
@@ -137,7 +143,7 @@ def send_booking_confirmation_email(
     """
 
     message = EmailMessage()
-    message["Subject"] = f"Booking confirmed — {service_name}"
+    message["Subject"] = f"Booking confirmed — {service_name} (#{booking_id})"
     message["From"] = settings.smtp_from_email
     message["To"] = customer_email
     message.set_content(plain_text)
@@ -353,6 +359,7 @@ def create_appointment(
 
     background_tasks.add_task(
         send_booking_confirmation_email,
+        booking_id=db_appointment.id,
         customer_email=db_appointment.customer_email,
         barber_name=barber.name,
         service_name=service.name,
