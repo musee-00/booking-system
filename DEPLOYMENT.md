@@ -6,7 +6,7 @@ The live demo runs on free tiers:
 |---|---|---|
 | PostgreSQL database | Render | [`render.yaml`](render.yaml) |
 | FastAPI backend | Render | [`render.yaml`](render.yaml) |
-| React frontend | Vercel | _see "Frontend on Vercel" below_ |
+| React frontend | Vercel | [`frontend/vercel.json`](frontend/vercel.json) + project settings below |
 
 ## Before you start
 
@@ -48,7 +48,49 @@ Don't run `scripts/seed_dev_data.py` against production: it deletes all bookings
 
 ## Frontend on Vercel
 
-_Added in the next step._
+Deploy the backend first, so you know its address.
+
+1. Sign up at https://vercel.com with your GitHub account.
+2. Click **Add New… → Project** and import the `booking-system` repository.
+3. Configure the project:
+
+   | Setting | Value |
+   |---|---|
+   | Project Name | The name you chose earlier, e.g. `north-street-booking` |
+   | Framework Preset | **Vite** (usually detected automatically) |
+   | Root Directory | **`frontend`** (click *Edit* and select the folder) |
+   | Build Command / Output Directory | Leave the defaults (`npm run build` / `dist`) |
+
+4. Under **Environment Variables**, add:
+
+   | Name | Value |
+   |---|---|
+   | `VITE_API_URL` | Your Render API address **without** `/api/v1`, e.g. `https://north-street-api.onrender.com` |
+
+   Vite bakes this value into the JavaScript at build time. If you change it later, you must **redeploy** for it to take effect.
+5. Click **Deploy**. When it finishes, Vercel shows your address, e.g. `https://north-street-booking.vercel.app`.
+
+### Connect the two
+
+- If the Vercel address is **exactly** what you entered as `CORS_ORIGINS` on Render, you're done.
+- If it's different (for example because the name was taken), go to Render → `north-street-api` → **Environment**, update `CORS_ORIGINS` to the real address (no trailing slash) and save. Render redeploys automatically.
+
+### Check that it works
+
+1. Open your Vercel address. The page loads. With an empty database the service list is empty; that's expected.
+2. Open `<vercel address>/admin` **directly** in a new tab. You should see the login page, not a 404; `frontend/vercel.json` makes this work.
+3. Log in. The first request can take up to a minute while the Render API wakes up.
+4. Add barbers and services on **Team & services**, then make a booking on the customer page.
+
+### If something doesn't work
+
+Open the browser's DevTools (**Cmd + Option + I**) → **Console**:
+
+- **`blocked by CORS policy`**: `CORS_ORIGINS` on Render doesn't match your Vercel address exactly (check `https`, the spelling, and that there's no trailing `/`).
+- **Requests go to `localhost:8000`**: `VITE_API_URL` wasn't set when the site was built. Set it in Vercel → Settings → Environment Variables, then **Deployments → ⋯ → Redeploy**.
+- **`Failed to fetch` after a long wait**: the API is still waking up, or failed to start. Check the Render logs.
+
+Vercel redeploys the frontend automatically on every push to `main`, and creates a preview URL for every other branch.
 
 ## Free-tier limitations
 
