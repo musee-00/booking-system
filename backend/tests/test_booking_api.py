@@ -377,3 +377,57 @@ def test_public_endpoints_do_not_expose_customer_data(admin_headers) -> None:
         assert public_response.status_code == 200, public_response.text
         for secret in (secret_name, secret_email, secret_phone):
             assert secret not in public_response.text
+
+
+# ------------------------------------------------------- input validation ---
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("customer_email", "abc"),
+        ("customer_email", "a@b"),
+        ("customer_email", ""),
+        ("customer_name", ""),
+        ("customer_name", "   "),
+        ("customer_name", "x" * 151),
+        ("customer_phone", "12"),
+        ("customer_phone", "call me"),
+        ("customer_phone", "1" * 31),
+    ],
+)
+def test_rejects_invalid_customer_details(field, value, admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers)
+    day = future_business_day()
+
+    response = book(barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"), **{field: value})
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["loc"][-1] == field
+
+
+@pytest.mark.parametrize("phone", ["+46 70 123 45 67", "070-123 45 67", "(070) 1234567", "0701234567"])
+def test_accepts_common_phone_formats(phone, admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers)
+    day = future_business_day()
+
+    response = book(barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"), customer_phone=phone)
+
+    assert response.status_code == 200, response.text
+
+
+def test_trims_whitespace_and_normalises_email(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers)
+    day = future_business_day()
+
+    response = book(
+        barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"),
+        customer_name="  Alice Andersson ", customer_email=" Alice@Example.COM ",
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["customer_name"] == "Alice Andersson"
+    assert response.json()["customer_email"] == "Alice@example.com"
