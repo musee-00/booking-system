@@ -18,8 +18,9 @@ npm run lint      # oxlint
 | `/` | `src/pages/CustomerPage.jsx` | Public landing page and five-step booking wizard |
 | `/admin` | `src/pages/AdminLoginPage.jsx` | Admin login; shows "session expired" when redirected after a `401` |
 | `/admin/appointments` | `src/pages/AdminAppointmentsPage.jsx` | Week and day calendar: create, view and cancel bookings |
+| `/admin/team` | `src/pages/AdminTeamPage.jsx` | Add, edit, deactivate and reactivate barbers and services |
 
-`src/components/ProtectedRoute.jsx` redirects to `/admin` when no token is stored. The token itself is checked by the API. All admin requests go through `adminFetch`, which sends the token and handles an expired session.
+`src/components/ProtectedRoute.jsx` redirects to `/admin` when no token is stored. The token itself is checked by the API. All admin requests go through the `useAdminFetch()` hook in `src/api.js`, which sends the token and handles an expired session.
 
 ## Notes
 
