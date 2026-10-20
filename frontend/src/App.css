@@ -224,54 +224,6 @@ button {
   font-size: 0.64rem;
 }
 
-.service-group {
-  border-top: 1px solid var(--line);
-  padding-top: 18px;
-  margin-top: 12px;
-}
-
-.group-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  padding: 0 0 12px;
-}
-
-.group-toggle strong {
-  display: block;
-  font-size: 1.1rem;
-}
-
-.group-toggle small {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.toggle-indicator {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  font-size: 1.5rem;
-  color: var(--gold);
-  transition: transform 0.2s ease;
-}
-
-.toggle-indicator.open {
-  transform: rotate(90deg);
-}
-
 .service-list {
   display: grid;
   gap: 12px;
@@ -324,6 +276,12 @@ button {
 .service-row__text span {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.service-row__text small {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
 }
 
 .service-arrow {
@@ -709,7 +667,7 @@ button {
 
 .booking-modal__stepper {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 22px;
 }
@@ -758,6 +716,12 @@ button {
 
 .small-header {
   margin-bottom: 0;
+}
+
+.modal-header__barber {
+  color: var(--muted);
+  font-size: 0.8em;
+  font-weight: 400;
 }
 
 .modal-barber-grid {
@@ -819,6 +783,7 @@ button {
   color: var(--muted);
 }
 
+.service-row.selected,
 .barber-option.selected,
 .day-pill.selected,
 .slot-button.selected {
@@ -1050,7 +1015,15 @@ button {
   }
 
   .booking-modal__stepper {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .modal-step {
+    padding: 8px 0;
+  }
+
+  .modal-step span {
+    display: none;
   }
 
   .day-picker {

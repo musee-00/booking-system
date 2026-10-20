@@ -29,7 +29,8 @@ const SERVICE_IMAGES = [
   'https://images.unsplash.com/photo-1521341057461-6eb5f40b07ab?auto=format&fit=crop&w=900&q=80',
 ]
 
-const WIZARD_STEPS = ['Barber', 'Time', 'Details', 'Confirm']
+const WIZARD_STEPS = ['Service', 'Barber', 'Time', 'Details', 'Confirm']
+const STEP = { SERVICE: 0, BARBER: 1, TIME: 2, DETAILS: 3, CONFIRM: 4 }
 
 // Build YYYY-MM-DD from local date parts. toISOString() would convert to UTC
 // and shift the day backwards in timezones ahead of UTC (e.g. Sweden).
@@ -101,7 +102,6 @@ export function CustomerPage() {
   const [services, setServices] = useState([])
   const [barbers, setBarbers] = useState([])
   const [slotAvailability, setSlotAvailability] = useState({})
-  const [openGroups, setOpenGroups] = useState({ haircut: true, grooming: true, finishing: false })
   const [isBookingOpen, setIsBookingOpen] = useState(false)
   const [selectedServiceId, setSelectedServiceId] = useState('')
   const [currentStep, setCurrentStep] = useState(0)
@@ -135,27 +135,13 @@ export function CustomerPage() {
 
   const getNextAvailableDate = () => weekDates.find((dayInfo) => !isPastDay(dayInfo.iso) && (slotAvailability[dayInfo.iso] || []).length > 0)
 
-  const serviceGroups = useMemo(() => {
-    const groups = [
-      { id: 'haircut', title: 'Haircuts', subtitle: 'Precision cuts & styling' },
-      { id: 'grooming', title: 'Grooming', subtitle: 'Beards, fades & finishing' },
-      { id: 'finishing', title: 'Care', subtitle: 'Scalp & detail treatments' },
-    ]
-
-    if (!services.length) {
-      return groups.map((group) => ({ ...group, items: [] }))
-    }
-
-    const chunkSize = Math.max(1, Math.ceil(services.length / groups.length))
-
-    return groups.map((group, groupIndex) => ({
-      ...group,
-      items: services.slice(groupIndex * chunkSize, groupIndex * chunkSize + chunkSize).map((service, serviceIndex) => ({
-        ...service,
-        image: SERVICE_IMAGES[(groupIndex + serviceIndex) % SERVICE_IMAGES.length],
-      })),
-    }))
-  }, [services])
+  const servicesWithImages = useMemo(
+    () => services.map((service, index) => ({
+      ...service,
+      image: SERVICE_IMAGES[index % SERVICE_IMAGES.length],
+    })),
+    [services],
+  )
 
   useEffect(() => {
     if (!selectedService || !barbers.length) {
@@ -226,21 +212,25 @@ export function CustomerPage() {
   }
 
   const currentStepIsValid = useMemo(() => {
-    if (currentStep === 0) {
+    if (currentStep === STEP.SERVICE) {
+      return Boolean(selectedService)
+    }
+
+    if (currentStep === STEP.BARBER) {
       return Boolean(selectedBarber)
     }
 
-    if (currentStep === 1) {
+    if (currentStep === STEP.TIME) {
       return Boolean(selectedSlot)
     }
 
-    if (currentStep === 2) {
+    if (currentStep === STEP.DETAILS) {
       const nextErrors = validateBookingForm()
       return Object.keys(nextErrors).length === 0
     }
 
     return true
-  }, [bookingForm.customer_name, bookingForm.customer_phone, bookingForm.customer_email, currentStep, selectedBarber, selectedBarberId, selectedSlot])
+  }, [bookingForm.customer_name, bookingForm.customer_phone, bookingForm.customer_email, currentStep, selectedService, selectedBarber, selectedBarberId, selectedSlot])
 
   const summaryBarber = selectedBarber?.name || 'Barber'
 
@@ -252,9 +242,6 @@ export function CustomerPage() {
     const { response, data } = await fetchJson(`${API_BASE}/services`)
     if (response.ok) {
       setServices(data)
-      if (!selectedServiceId && data[0]) {
-        setSelectedServiceId(String(data[0].id))
-      }
     }
   }
 
@@ -285,16 +272,18 @@ export function CustomerPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const openBooking = (serviceId, barberId = '') => {
+  // The wizard can be opened from a service row, a barber profile, or the
+  // generic "Book now" button. Start on the first question not yet answered.
+  const openBooking = ({ serviceId = '', barberId = '' } = {}) => {
     setCustomerNotice('')
     setSelectedServiceId(String(serviceId))
-    setSelectedBarberId(String(barberId || ''))
+    setSelectedBarberId(String(barberId))
     setSelectedBarberProfile(null)
     setSelectedSlot(null)
     setBookingForm({ customer_name: '', customer_phone: '', customer_email: '' })
     setFormErrors({})
     setBookingMessage({ type: '', text: '' })
-    setCurrentStep(0)
+    setCurrentStep(!serviceId ? STEP.SERVICE : !barberId ? STEP.BARBER : STEP.TIME)
     setSelectedDate(formatDateValue(new Date(Date.now() + 86400000)))
     setIsBookingOpen(true)
   }
@@ -323,23 +312,31 @@ export function CustomerPage() {
       return
     }
 
-    setCurrentStep(3)
+    setCurrentStep(STEP.CONFIRM)
   }
 
   const handlePreviousStep = () => {
     setCurrentStep((previous) => Math.max(previous - 1, 0))
   }
 
+  // Slots depend on both service (duration) and barber, so changing either
+  // one clears any previously picked time.
+  const handleServiceSelect = (serviceId) => {
+    setSelectedServiceId(String(serviceId))
+    setSelectedSlot(null)
+    setCurrentStep(selectedBarberId ? STEP.TIME : STEP.BARBER)
+  }
+
   const handleBarberSelect = (barberId) => {
     setSelectedBarberId(String(barberId))
     setSelectedSlot(null)
-    setCurrentStep(1)
+    setCurrentStep(STEP.TIME)
   }
 
   const handleSlotSelect = (slot) => {
     const normalizedSlot = normalizeSlot(slot)
     setSelectedSlot(normalizedSlot)
-    setCurrentStep(2)
+    setCurrentStep(STEP.DETAILS)
   }
 
   const handleBookAppointment = async () => {
@@ -438,41 +435,24 @@ export function CustomerPage() {
               <h2>Cut, refine, repeat.</h2>
             </div>
 
-            {serviceGroups.map((group) => (
-              <div key={group.id} className="service-group">
+            <div className="service-list">
+              {servicesWithImages.map((service) => (
                 <button
+                  key={service.id}
                   type="button"
-                  className="group-toggle"
-                  onClick={() => setOpenGroups((current) => ({ ...current, [group.id]: !current[group.id] }))}
+                  className="service-row"
+                  onClick={() => openBooking({ serviceId: service.id })}
                 >
-                  <span>
-                    <strong>{group.title}</strong>
-                    <small>{group.subtitle}</small>
-                  </span>
-                  <span className={`toggle-indicator ${openGroups[group.id] ? 'open' : ''}`}>›</span>
-                </button>
-
-                {openGroups[group.id] && (
-                  <div className="service-list">
-                    {group.items.map((service) => (
-                      <button
-                        key={service.id}
-                        type="button"
-                        className="service-row"
-                        onClick={() => openBooking(service.id)}
-                      >
-                        <div className="service-thumb" style={{ backgroundImage: `url(${service.image})` }} aria-hidden="true" />
-                        <div className="service-row__text">
-                          <strong>{service.name}</strong>
-                          <span>{service.duration_minutes} mins · {formatPrice(service.price)}</span>
-                        </div>
-                        <span className="service-arrow">›</span>
-                      </button>
-                    ))}
+                  <div className="service-thumb" style={{ backgroundImage: `url(${service.image})` }} aria-hidden="true" />
+                  <div className="service-row__text">
+                    <strong>{service.name}</strong>
+                    {service.description && <small>{service.description}</small>}
+                    <span>{service.duration_minutes} mins · {formatPrice(service.price)}</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  <span className="service-arrow">›</span>
+                </button>
+              ))}
+            </div>
           </section>
 
           <aside className="booking-sidecard">
@@ -484,7 +464,7 @@ export function CustomerPage() {
               </div>
             </div>
 
-            <button type="button" className="primary-button" onClick={() => openBooking(selectedServiceId || services[0]?.id)}>
+            <button type="button" className="primary-button" onClick={() => openBooking()}>
               Book now
             </button>
 
@@ -618,11 +598,7 @@ export function CustomerPage() {
             <button
               type="button"
               className="primary-button"
-              onClick={() => {
-                const defaultService = selectedServiceId || services[0]?.id
-                setSelectedBarberProfile(null)
-                openBooking(defaultService, selectedBarberProfile.id)
-              }}
+              onClick={() => openBooking({ barberId: selectedBarberProfile.id })}
             >
               Book with {selectedBarberProfile.name}
             </button>
@@ -636,7 +612,10 @@ export function CustomerPage() {
             <div className="modal-header">
               <div>
                 <p className="section-kicker section-kicker--small">Book appointment</p>
-                <h3>{selectedService?.name || 'Select a service'}</h3>
+                <h3>
+                  {selectedService?.name || 'Choose a service'}
+                  {selectedBarber && currentStep > STEP.BARBER && <small className="modal-header__barber"> with {selectedBarber.name}</small>}
+                </h3>
               </div>
               <button type="button" className="close-button" onClick={() => setIsBookingOpen(false)}>×</button>
             </div>
@@ -650,10 +629,42 @@ export function CustomerPage() {
               ))}
             </div>
 
-            {currentStep === 0 && (
+            {currentStep === STEP.SERVICE && (
               <div className="booking-step-panel">
                 <div className="section-header small-header">
                   <p className="section-kicker">Step 1</p>
+                  <h2>Choose a service</h2>
+                </div>
+
+                <div className="service-list">
+                  {servicesWithImages.map((service) => (
+                    <button
+                      key={service.id}
+                      type="button"
+                      className={`service-row ${String(service.id) === String(selectedServiceId) ? 'selected' : ''}`}
+                      onClick={() => handleServiceSelect(service.id)}
+                    >
+                      <div className="service-thumb" style={{ backgroundImage: `url(${service.image})` }} aria-hidden="true" />
+                      <div className="service-row__text">
+                        <strong>{service.name}</strong>
+                        {service.description && <small>{service.description}</small>}
+                        <span>{service.duration_minutes} mins · {formatPrice(service.price)}</span>
+                      </div>
+                      <span className="service-arrow">›</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="booking-actions">
+                  <button type="button" className="secondary-button" onClick={() => setIsBookingOpen(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {currentStep === STEP.BARBER && (
+              <div className="booking-step-panel">
+                <div className="section-header small-header">
+                  <p className="section-kicker">Step 2</p>
                   <h2>Choose your barber</h2>
                 </div>
 
@@ -682,15 +693,15 @@ export function CustomerPage() {
                 </div>
 
                 <div className="booking-actions">
-                  <button type="button" className="secondary-button" onClick={() => setIsBookingOpen(false)}>Back</button>
+                  <button type="button" className="secondary-button" onClick={handlePreviousStep}>Back</button>
                 </div>
               </div>
             )}
 
-            {currentStep === 1 && (
+            {currentStep === STEP.TIME && (
               <div className="booking-step-panel">
                 <div className="section-header small-header">
-                  <p className="section-kicker">Step 2</p>
+                  <p className="section-kicker">Step 3</p>
                   <h2>Pick a time</h2>
                 </div>
 
@@ -752,10 +763,10 @@ export function CustomerPage() {
               </div>
             )}
 
-            {currentStep === 2 && (
+            {currentStep === STEP.DETAILS && (
               <div className="booking-step-panel">
                 <div className="section-header small-header">
-                  <p className="section-kicker">Step 3</p>
+                  <p className="section-kicker">Step 4</p>
                   <h2>Your details</h2>
                 </div>
 
@@ -811,10 +822,10 @@ export function CustomerPage() {
               </div>
             )}
 
-            {currentStep === 3 && (
+            {currentStep === STEP.CONFIRM && (
               <div className="booking-step-panel">
                 <div className="section-header small-header">
-                  <p className="section-kicker">Step 4</p>
+                  <p className="section-kicker">Step 5</p>
                   <h2>Confirm booking</h2>
                 </div>
 
