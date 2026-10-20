@@ -34,6 +34,18 @@ export const getErrorMessage = (data, fallback) => {
   return fallback
 }
 
+// Read the username ("sub") from a JWT for display only. A JWT's middle part is
+// base64url-encoded JSON that anyone can read; only the server can verify the
+// signature, so never use this for access decisions.
+export const getTokenUsername = (token) => {
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    return JSON.parse(atob(payload)).sub || 'admin'
+  } catch {
+    return 'admin'
+  }
+}
+
 // Returns a fetch function for admin-only endpoints. It sends the stored JWT,
 // and on a 401 (token missing, expired or forged) it drops the token and sends
 // the user back to the login page with a "session expired" message.

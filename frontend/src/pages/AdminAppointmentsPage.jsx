@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ADMIN_TOKEN_KEY, API_BASE, NETWORK_ERROR, fetchJson, useAdminFetch } from '../api.js'
+import { ADMIN_TOKEN_KEY, API_BASE, NETWORK_ERROR, fetchJson, getTokenUsername, useAdminFetch } from '../api.js'
 const OPENING_HOUR = 9
 const CLOSING_HOUR = 18
 const SLOT_MINUTES = 30
@@ -10,13 +10,6 @@ const SLOT_HEIGHT = 32
 const OPEN_WEEKDAYS = [2, 3, 4, 5, 6]
 
 const isClosedDay = (dateValue) => !OPEN_WEEKDAYS.includes(new Date(dateValue).getDay())
-
-const formatDateLabel = (dateValue) =>
-  new Date(`${dateValue}T12:00:00`).toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  })
 
 const formatDateLong = (dateValue) =>
   new Date(`${dateValue}T12:00:00`).toLocaleDateString(undefined, {
@@ -104,8 +97,8 @@ const getErrorMessage = (data, fallback) => {
 export function AdminAppointmentsPage() {
   const navigate = useNavigate()
   const adminFetch = useAdminFetch()
-  const [adminToken, setAdminToken] = useState(localStorage.getItem(ADMIN_TOKEN_KEY) || '')
-  const [adminUsername, setAdminUsername] = useState('admin')
+  // ProtectedRoute guarantees a token exists; the API checks if it's valid.
+  const [adminUsername] = useState(() => getTokenUsername(localStorage.getItem(ADMIN_TOKEN_KEY)))
   const [adminMessage, setAdminMessage] = useState({ type: '', text: '' })
   const [services, setServices] = useState([])
   const [barbers, setBarbers] = useState([])
@@ -114,7 +107,7 @@ export function AdminAppointmentsPage() {
   const [showCompleted, setShowCompleted] = useState(false)
   const [now, setNow] = useState(() => new Date())
   const [viewMode, setViewMode] = useState('week')
-  const [selectedDate, setSelectedDate] = useState(new Date())
+  const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [selectedAppointment, setSelectedAppointment] = useState(null)
   const [selectedSlot, setSelectedSlot] = useState(null)
   const [bookingFormError, setBookingFormError] = useState('')
@@ -165,8 +158,7 @@ export function AdminAppointmentsPage() {
       return 'Cancelled'
     }
 
-    const startsAt = new Date(appointment.starts_at)
-    if (startsAt < new Date()) {
+    if (new Date(appointment.starts_at) < now) {
       return 'Completed'
     }
 
@@ -195,7 +187,8 @@ export function AdminAppointmentsPage() {
     return `${firstDay.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${lastDay.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
   }
 
-  const getCalendarColumns = () => {
+  // Day view: one column per barber. Week view: one column per day.
+  const calendarColumns = useMemo(() => {
     if (viewMode === 'day') {
       return barbers
         .map((barber) => ({
@@ -221,9 +214,7 @@ export function AdminAppointmentsPage() {
       date: day.date,
       appointments: visibleAppointments.filter((item) => isSameDateKey(item.starts_at, day.date)),
     }))
-  }
-
-  const calendarColumns = useMemo(() => getCalendarColumns(), [barbers, selectedDate, viewMode, visibleAppointments])
+  }, [barbers, selectedDate, viewMode, visibleAppointments, weekDates])
 
   const getAppointmentLayout = (appointments, appointment) => {
     const sortedAppointments = [...appointments].sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at))
@@ -282,7 +273,7 @@ export function AdminAppointmentsPage() {
     return blockStyle
   }
 
-  const isPastAppointment = (appointment) => new Date(appointment.starts_at) < new Date()
+  const isPastAppointment = (appointment) => new Date(appointment.starts_at) < now
 
   const openAppointmentPanel = (appointment) => {
     setSelectedAppointment(appointment)
@@ -308,32 +299,42 @@ export function AdminAppointmentsPage() {
     setSelectedSlot(null)
   }
 
-  // Admin lists include inactive barbers/services (see activeBarbers above).
-  const loadServices = async () => {
-    const { response, data } = await adminFetch('/admin/services')
-    if (response.ok) setServices(data)
-  }
-
-  const loadBarbers = async () => {
-    const { response, data } = await adminFetch('/admin/barbers')
-    if (response.ok) setBarbers(data)
-  }
-
-  const loadAppointments = async () => {
-    const { response, data } = await adminFetch('/appointments')
-    if (response.ok) setAppointments(data)
-  }
-
+  // Load everything once when the page opens. Admin lists include inactive
+  // barbers/services (see activeBarbers above).
   useEffect(() => {
-    if (!adminToken) {
-      navigate('/admin', { replace: true })
-      return
+    let ignore = false
+
+    const loadCalendarData = async () => {
+      try {
+        const [servicesResult, barbersResult, appointmentsResult] = await Promise.all([
+          adminFetch('/admin/services'),
+          adminFetch('/admin/barbers'),
+          adminFetch('/appointments'),
+        ])
+        if (ignore) return
+        if (servicesResult.response.ok) setServices(servicesResult.data)
+        if (barbersResult.response.ok) setBarbers(barbersResult.data)
+        if (appointmentsResult.response.ok) setAppointments(appointmentsResult.data)
+      } catch {
+        if (!ignore) setAdminMessage({ type: 'error', text: NETWORK_ERROR })
+      }
     }
 
-    loadServices()
-    loadBarbers()
-    loadAppointments()
-  }, [adminToken, navigate])
+    loadCalendarData()
+    return () => {
+      ignore = true
+    }
+  }, [adminFetch])
+
+  // Refresh after creating or cancelling a booking.
+  const reloadAppointments = async () => {
+    try {
+      const { response, data } = await adminFetch('/appointments')
+      if (response.ok) setAppointments(data)
+    } catch {
+      setAdminMessage({ type: 'error', text: NETWORK_ERROR })
+    }
+  }
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(new Date()), 60_000)
@@ -341,11 +342,6 @@ export function AdminAppointmentsPage() {
   }, [])
 
   const handleCancelAppointment = async (appointmentId) => {
-    if (!adminToken) {
-      setAdminMessage({ type: 'error', text: 'Log in first to cancel appointments.' })
-      return
-    }
-
     const { response, data } = await adminFetch(`/appointments/${appointmentId}/cancel`, {
       method: 'PATCH',
     })
@@ -358,7 +354,7 @@ export function AdminAppointmentsPage() {
     setAdminMessage({ type: 'success', text: 'Appointment cancelled.' })
     setSelectedAppointment(null)
     setSelectedSlot(null)
-    loadAppointments()
+    reloadAppointments()
   }
 
   const handleCreateBooking = async (event) => {
@@ -417,13 +413,11 @@ export function AdminAppointmentsPage() {
       customer_phone: '',
       customer_email: '',
     })
-    loadAppointments()
+    reloadAppointments()
   }
 
   const handleLogout = () => {
     localStorage.removeItem(ADMIN_TOKEN_KEY)
-    setAdminToken('')
-    setAdminMessage({ type: 'success', text: 'Logged out.' })
     navigate('/admin', { replace: true })
   }
 
