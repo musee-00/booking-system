@@ -1360,6 +1360,11 @@ button {
   background: rgba(217, 181, 127, 0.08);
 }
 
+.admin-empty-slot.is-past {
+  cursor: default;
+  background: rgba(15, 23, 42, 0.35);
+}
+
 .admin-booking-block {
   position: absolute;
   left: 8px;

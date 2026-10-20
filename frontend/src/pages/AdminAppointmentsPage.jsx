@@ -108,6 +108,8 @@ export function AdminAppointmentsPage() {
   const [barbers, setBarbers] = useState([])
   const [appointments, setAppointments] = useState([])
   const [showCancelled, setShowCancelled] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(false)
+  const [now, setNow] = useState(() => new Date())
   const [viewMode, setViewMode] = useState('week')
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [selectedAppointment, setSelectedAppointment] = useState(null)
@@ -124,8 +126,10 @@ export function AdminAppointmentsPage() {
     () =>
       [...appointments]
         .filter((appointment) => (showCancelled ? true : appointment.status !== 'cancelled'))
+        // Completed = already ended. An appointment in progress right now stays visible.
+        .filter((appointment) => (showCompleted ? true : new Date(appointment.ends_at) > now))
         .sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at)),
-    [appointments, showCancelled],
+    [appointments, showCancelled, showCompleted, now],
   )
 
   const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate])
@@ -365,6 +369,11 @@ export function AdminAppointmentsPage() {
     }))
   }, [barbers])
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(intervalId)
+  }, [])
+
   const handleCancelAppointment = async (appointmentId) => {
     if (!adminToken) {
       setAdminMessage({ type: 'error', text: 'Log in first to cancel appointments.' })
@@ -443,7 +452,7 @@ export function AdminAppointmentsPage() {
     navigate('/admin', { replace: true })
   }
 
-  const currentTimeMinutes = new Date().getHours() * 60 + new Date().getMinutes()
+  const currentTimeMinutes = now.getHours() * 60 + now.getMinutes()
 
   return (
     <div className="admin-page">
@@ -478,6 +487,9 @@ export function AdminAppointmentsPage() {
             <Link to="/" className="admin-secondary-button">Customer page</Link>
             <button className="admin-secondary-button" onClick={() => setShowCancelled((current) => !current)} type="button">
               {showCancelled ? 'Hide cancelled' : 'Show cancelled'}
+            </button>
+            <button className="admin-secondary-button" onClick={() => setShowCompleted((current) => !current)} type="button">
+              {showCompleted ? 'Hide completed' : 'Show completed'}
             </button>
             <button className="admin-secondary-button" onClick={handleLogout} type="button">
               Log out
@@ -542,7 +554,7 @@ export function AdminAppointmentsPage() {
                   </div>
 
                   {calendarColumns.map((column) => {
-                    const currentDayKey = dateKeyFromValue(new Date())
+                    const currentDayKey = dateKeyFromValue(now)
                     const currentLineTop = ((currentTimeMinutes - OPENING_HOUR * 60) / SLOT_MINUTES) * SLOT_HEIGHT
                     const shouldShowCurrentLine =
                       column.key === currentDayKey && currentTimeMinutes >= OPENING_HOUR * 60 && currentTimeMinutes <= CLOSING_HOUR * 60
@@ -606,33 +618,30 @@ export function AdminAppointmentsPage() {
                             />
                           )}
 
-                          {viewMode === 'day' && (
-                            <div className="admin-column-rows">
-                              {timeMarkers.map((marker) => (
-                                <button
-                                  key={`${column.id}-slot-${marker.id}`}
-                                  type="button"
-                                  className="admin-empty-slot"
-                                  onClick={() => openSlotPanel(column.barberId, new Date(selectedDate).setHours(Math.floor(marker.minutes / 60), marker.minutes % 60, 0, 0))}
-                                  aria-label={`Book ${column.label} at ${marker.label}`}
-                                />
-                              ))}
-                            </div>
-                          )}
+                          <div className="admin-column-rows">
+                            {timeMarkers.map((marker) => {
+                              // Day view: one column per barber. Week view: one column per day.
+                              const slotStart = new Date(viewMode === 'day' ? selectedDate : column.date)
+                              slotStart.setHours(Math.floor(marker.minutes / 60), marker.minutes % 60, 0, 0)
 
-                          {viewMode === 'week' && (
-                            <div className="admin-column-rows">
-                              {timeMarkers.map((marker) => (
+                              // Past slots can't be booked (the API rejects them), so render
+                              // a plain shaded cell instead of a clickable button.
+                              if (slotStart < now) {
+                                return <div key={`${column.id}-slot-${marker.id}`} className="admin-empty-slot is-past" aria-hidden="true" />
+                              }
+
+                              const barberId = viewMode === 'day' ? column.barberId : barbers[0]?.id || ''
+                              return (
                                 <button
                                   key={`${column.id}-slot-${marker.id}`}
                                   type="button"
                                   className="admin-empty-slot"
-                                  onClick={() => openSlotPanel(barbers[0]?.id || '', new Date(column.date).setHours(Math.floor(marker.minutes / 60), marker.minutes % 60, 0, 0))}
-                                  aria-label={`Book on ${column.label} at ${marker.label}`}
+                                  onClick={() => openSlotPanel(barberId, slotStart)}
+                                  aria-label={`Book ${viewMode === 'day' ? column.label : `on ${column.label}`} at ${marker.label}`}
                                 />
-                              ))}
-                            </div>
-                          )}
+                              )
+                            })}
+                          </div>
                         </div>
                       </div>
                     )
