@@ -37,22 +37,32 @@ python -m pytest -v
 | Path | Contents |
 |---|---|
 | `app/main.py` | FastAPI app and CORS |
-| `app/api/v1/router.py` | All endpoints, the availability calculation and the confirmation email |
-| `app/auth.py` | Password hashing, JWT creation and the `require_admin` dependency |
+| `app/api/v1/router.py` | Booking, availability, barbers, services, login and the confirmation email |
+| `app/api/v1/schedule_routes.py` | Working hours, time off and the calendar's schedules endpoint |
+| `app/api/v1/account_routes.py` | Owner-only management of barber logins |
+| `app/schedule.py` | Shop hours and the rules for working blocks and time off |
+| `app/auth.py` | Password hashing, JWTs and the `get_current_user` / `require_owner` dependencies |
 | `app/models.py` | SQLAlchemy models |
 | `app/schemas.py` | Pydantic request and response schemas |
 | `app/core/config.py` | Settings loaded from `.env` |
 | `alembic/versions/` | Database migrations, including the exclusion constraint |
 
-## Adding an admin-only endpoint
+## Adding a protected endpoint
 
-Attach the dependency to the route. Requests without a valid token get `401` before your handler runs:
+Pick the dependency for who may call it. It runs before your handler:
 
 ```python
-from app.auth import require_admin
+from app.auth import get_current_user, require_owner
 
-@router.delete("/services/{service_id}", dependencies=[Depends(require_admin)])
+# Owner only: 401 without a valid login, 403 for a barber.
+@router.delete("/services/{service_id}", dependencies=[Depends(require_owner)])
 def delete_service(service_id: int, db: Session = Depends(get_db)): ...
+
+# Any staff login, and the handler limits a barber to their own data.
+@router.get("/my-things")
+def my_things(user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)): ...
 ```
 
-Then add the endpoint to `PROTECTED_ENDPOINTS` in `tests/test_booking_api.py`, so the missing, invalid and valid token tests cover it automatically.
+Then add it to the tests:
+- `PROTECTED_ENDPOINTS` in `tests/test_booking_api.py`, so the missing, invalid and valid token tests cover it;
+- for owner-only endpoints, `owner_only_requests` in `tests/test_accounts.py`, so it's checked that a barber gets `403`.
