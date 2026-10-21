@@ -7,12 +7,12 @@ from email.message import EmailMessage
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_access_token, create_admin_user_record, require_admin, verify_password
 from app.core.config import settings
 from app.db.database import get_db
-from app.models import AdminUser, Appointment, Barber, Service
+from app.models import AdminUser, Appointment, Barber, Service, barber_services
 from app.schedule import (
     SHOP_CLOSES,
     SHOP_OPENS,
@@ -207,8 +207,28 @@ def commit_or_conflict(db: Session, detail: str) -> None:
 
 def apply_update(record: Barber | Service, changes: BarberUpdate | ServiceUpdate) -> None:
     """PATCH semantics: only fields the client actually sent are changed."""
-    for field, value in changes.model_dump(exclude_unset=True).items():
+    for field, value in changes.model_dump(exclude_unset=True, exclude={"barber_ids"}).items():
         setattr(record, field, value)
+
+
+def load_barbers(db: Session, barber_ids: list[int]) -> list[Barber]:
+    """The barbers with these ids; 422 if any id doesn't exist."""
+    barbers = db.scalars(select(Barber).where(Barber.id.in_(barber_ids))).all()
+    missing = set(barber_ids) - {barber.id for barber in barbers}
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown barber id(s): {', '.join(map(str, sorted(missing)))}.",
+        )
+    return list(barbers)
+
+
+def offers_service(db: Session, barber_id: int, service_id: int) -> bool:
+    return db.execute(
+        select(barber_services.c.barber_id).where(
+            barber_services.c.barber_id == barber_id, barber_services.c.service_id == service_id,
+        )
+    ).first() is not None
 
 
 def is_overlap_violation(exc: IntegrityError) -> bool:
@@ -225,12 +245,18 @@ def health_check() -> dict[str, str]:
 # Public lists only show active barbers/services: inactive ones are "soft deleted".
 @router.get("/barbers", response_model=list[BarberRead])
 def list_barbers(db: Session = Depends(get_db)) -> list[Barber]:
-    return db.scalars(select(Barber).where(Barber.active.is_(True)).order_by(Barber.created_at.desc())).all()
+    return db.scalars(
+        select(Barber).where(Barber.active.is_(True)).options(selectinload(Barber.services)).order_by(Barber.created_at.desc())
+    ).all()
 
 
 @router.post("/barbers", response_model=BarberRead, dependencies=[Depends(require_admin)])
 def create_barber(barber: BarberCreate, db: Session = Depends(get_db)) -> Barber:
-    db_barber = Barber(**barber.model_dump(), working_hours=default_working_hours())
+    db_barber = Barber(
+        **barber.model_dump(),
+        working_hours=default_working_hours(),
+        services=list(db.scalars(select(Service)).all()),  # offers everything until the owner says otherwise
+    )
     db.add(db_barber)
     commit_or_conflict(db, "A barber with this email already exists.")
     db.refresh(db_barber)
@@ -251,12 +277,18 @@ def update_barber(barber_id: int, changes: BarberUpdate, db: Session = Depends(g
 
 @router.get("/services", response_model=list[ServiceRead])
 def list_services(db: Session = Depends(get_db)) -> list[Service]:
-    return db.scalars(select(Service).where(Service.active.is_(True)).order_by(Service.created_at.desc())).all()
+    return db.scalars(
+        select(Service).where(Service.active.is_(True)).options(selectinload(Service.barbers)).order_by(Service.created_at.desc())
+    ).all()
 
 
 @router.post("/services", response_model=ServiceRead, dependencies=[Depends(require_admin)])
 def create_service(service: ServiceCreate, db: Session = Depends(get_db)) -> Service:
-    db_service = Service(**service.model_dump())
+    if service.barber_ids is None:
+        offered_by = list(db.scalars(select(Barber).where(Barber.active.is_(True))).all())
+    else:
+        offered_by = load_barbers(db, service.barber_ids)
+    db_service = Service(**service.model_dump(exclude={"barber_ids"}), barbers=offered_by)
     db.add(db_service)
     commit_or_conflict(db, "A service with this name already exists.")
     db.refresh(db_service)
@@ -270,6 +302,8 @@ def update_service(service_id: int, changes: ServiceUpdate, db: Session = Depend
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found.")
 
     apply_update(service, changes)
+    if "barber_ids" in changes.model_fields_set:
+        service.barbers = load_barbers(db, changes.barber_ids)
     commit_or_conflict(db, "A service with this name already exists.")
     db.refresh(service)
     return service
@@ -279,12 +313,12 @@ def update_service(service_id: int, changes: ServiceUpdate, db: Session = Depend
 # old appointments can still show the right name.
 @router.get("/admin/barbers", response_model=list[BarberRead], dependencies=[Depends(require_admin)])
 def list_all_barbers(db: Session = Depends(get_db)) -> list[Barber]:
-    return db.scalars(select(Barber).order_by(Barber.created_at.desc())).all()
+    return db.scalars(select(Barber).options(selectinload(Barber.services)).order_by(Barber.created_at.desc())).all()
 
 
 @router.get("/admin/services", response_model=list[ServiceRead], dependencies=[Depends(require_admin)])
 def list_all_services(db: Session = Depends(get_db)) -> list[Service]:
-    return db.scalars(select(Service).order_by(Service.created_at.desc())).all()
+    return db.scalars(select(Service).options(selectinload(Service.barbers)).order_by(Service.created_at.desc())).all()
 
 
 @router.get("/appointments", response_model=list[AppointmentRead], dependencies=[Depends(require_admin)])
@@ -306,6 +340,9 @@ def list_availability(
     barber = db.get(Barber, barber_id)
     if barber is None or not barber.active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
+
+    if not offers_service(db, barber_id, service_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{barber.name} doesn't offer this service.")
 
     slot_duration = timedelta(minutes=service.duration_minutes)
     now_stockholm = datetime.now(STOCKHOLM_TZ)
@@ -382,6 +419,8 @@ def create_appointment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This service is no longer available.")
     if not barber.active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This barber is no longer taking bookings.")
+    if not offers_service(db, barber.id, service.id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{barber.name} doesn't offer {service.name}.")
 
     # The barber's own schedule: inside one working block, not during time off.
     if not is_within_working_hours(db, barber.id, starts_at, ends_at):

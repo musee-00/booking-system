@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, time
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text, Time, func, text
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, Table, Text, Time, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -16,6 +16,16 @@ class AdminUser(Base):
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# Which barber offers which service (many-to-many). Like Setmore: the shop has
+# one service menu, and each service is assigned to the barbers who provide it.
+barber_services = Table(
+    "barber_services",
+    Base.metadata,
+    Column("barber_id", ForeignKey("barbers.id", ondelete="CASCADE"), primary_key=True),
+    Column("service_id", ForeignKey("services.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class Barber(Base):
@@ -33,12 +43,17 @@ class Barber(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="barber")
+    services: Mapped[list["Service"]] = relationship(secondary=barber_services, back_populates="barbers")
     working_hours: Mapped[list["BarberWorkingHours"]] = relationship(
         back_populates="barber", cascade="all, delete-orphan", order_by="(BarberWorkingHours.weekday, BarberWorkingHours.start_time)"
     )
     time_off: Mapped[list["BarberTimeOff"]] = relationship(
         back_populates="barber", cascade="all, delete-orphan", order_by="BarberTimeOff.starts_at"
     )
+
+    @property
+    def service_ids(self) -> list[int]:
+        return sorted(service.id for service in self.services)
 
 
 class BarberWorkingHours(Base):
@@ -92,6 +107,11 @@ class Service(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="service")
+    barbers: Mapped[list[Barber]] = relationship(secondary=barber_services, back_populates="services")
+
+    @property
+    def barber_ids(self) -> list[int]:
+        return sorted(barber.id for barber in self.barbers)
 
 
 class Appointment(Base):

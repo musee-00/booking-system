@@ -83,6 +83,8 @@ def seed_data() -> None:
         ]
         db.add_all(services)
         db.flush()
+        for barber in barbers:
+            barber.services = list(services)  # every demo barber offers every service
 
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         appointment_slots = [

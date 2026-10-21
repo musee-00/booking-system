@@ -15,7 +15,8 @@ class ServiceBase(BaseModel):
 
 
 class ServiceCreate(ServiceBase):
-    pass
+    # Barbers who offer this service. Left out: every active barber offers it.
+    barber_ids: list[int] | None = None
 
 
 class ServiceRead(ServiceBase):
@@ -24,6 +25,7 @@ class ServiceRead(ServiceBase):
     id: int
     active: bool
     created_at: datetime
+    barber_ids: list[int]
 
 
 # PATCH schemas: every field is optional, and only the fields actually sent are
@@ -36,6 +38,7 @@ class ServiceUpdate(BaseModel):
     price: Decimal = Field(default=None, ge=0)
     description: str | None = None
     active: bool = None
+    barber_ids: list[int] = None
 
 
 class BarberBase(BaseModel):
@@ -58,6 +61,7 @@ class BarberRead(BarberBase):
     id: int
     active: bool
     created_at: datetime
+    service_ids: list[int]
 
 
 class BarberUpdate(BaseModel):
