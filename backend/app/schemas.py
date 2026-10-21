@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 from typing import Annotated
 
@@ -116,3 +116,45 @@ class AdminLoginRequest(BaseModel):
 
 class AdminLoginResponse(BaseModel):
     token: str
+
+
+class WorkingHoursBlock(BaseModel):
+    """One weekly working block. weekday uses Python's convention: 0 = Monday ... 6 = Sunday."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    weekday: int = Field(..., ge=0, le=6)
+    start_time: time
+    end_time: time
+
+
+class TimeOffCreate(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    reason: str | None = Field(default=None, max_length=200)
+
+
+class TimeOffRead(TimeOffCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    barber_id: int
+    created_at: datetime
+
+
+class ConflictingAppointment(BaseModel):
+    """An existing booking that falls inside newly added time off."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    customer_name: str
+    customer_phone: str
+    starts_at: datetime
+    ends_at: datetime
+
+
+class TimeOffCreated(BaseModel):
+    time_off: TimeOffRead
+    # Time off doesn't cancel bookings automatically; the admin decides what to do.
+    conflicting_appointments: list[ConflictingAppointment]

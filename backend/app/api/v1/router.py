@@ -18,6 +18,7 @@ from app.schedule import (
     SHOP_OPENS,
     STOCKHOLM_TZ,
     default_working_hours,
+    ensure_stockholm_datetime,
     get_working_blocks,
     has_time_off,
     is_shop_open_day,
@@ -172,12 +173,6 @@ def send_booking_confirmation_email(
             smtp.send_message(message)
     except Exception:
         logger.exception("Failed to send booking confirmation email to %s", customer_email)
-
-
-def ensure_stockholm_datetime(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=STOCKHOLM_TZ)
-    return value.astimezone(STOCKHOLM_TZ)
 
 
 OVERLAP_CONSTRAINT = "appointments_no_overlap"

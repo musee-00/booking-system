@@ -339,6 +339,27 @@ def make_protected_request(endpoint: str, headers: dict[str, str], admin_headers
         return client.get("/api/v1/admin/barbers", headers=headers)
     if endpoint == "list all services":
         return client.get("/api/v1/admin/services", headers=headers)
+    if endpoint in ("get working hours", "replace working hours", "list time off", "create time off", "delete time off"):
+        barber = create_barber(admin_headers)
+        base = f"/api/v1/barbers/{barber['id']}"
+        if endpoint == "get working hours":
+            return client.get(f"{base}/working-hours", headers=headers)
+        if endpoint == "replace working hours":
+            return client.put(
+                f"{base}/working-hours", json=[{"weekday": 2, "start_time": "10:00", "end_time": "16:00"}], headers=headers,
+            )
+        if endpoint == "list time off":
+            return client.get(f"{base}/time-off", headers=headers)
+        day = future_business_day()
+        if endpoint == "create time off":
+            return client.post(
+                f"{base}/time-off", json={"starts_at": at(day, "09:00"), "ends_at": at(day, "12:00")}, headers=headers,
+            )
+        created = client.post(
+            f"{base}/time-off", json={"starts_at": at(day, "09:00"), "ends_at": at(day, "12:00")}, headers=admin_headers,
+        )
+        assert created.status_code == 201, created.text
+        return client.delete(f"{base}/time-off/{created.json()['time_off']['id']}", headers=headers)
     if endpoint == "cancel appointment":
         barber = create_barber(admin_headers)
         service = create_service(admin_headers)
@@ -357,6 +378,11 @@ PROTECTED_ENDPOINTS = [
     "update service",
     "list all barbers",
     "list all services",
+    "get working hours",
+    "replace working hours",
+    "list time off",
+    "create time off",
+    "delete time off",
     "cancel appointment",
 ]
 
@@ -390,7 +416,7 @@ def test_protected_endpoint_rejects_invalid_token(endpoint, bad_token, admin_hea
 @pytest.mark.parametrize("endpoint", PROTECTED_ENDPOINTS)
 def test_protected_endpoint_works_with_valid_token(endpoint, admin_headers) -> None:
     response = make_protected_request(endpoint, admin_headers, admin_headers)
-    assert response.status_code == 200, response.text
+    assert response.is_success, response.text  # 200, 201 (created) or 204 (deleted)
 
 
 def test_public_endpoints_do_not_expose_customer_data(admin_headers) -> None:

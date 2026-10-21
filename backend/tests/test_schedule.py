@@ -2,6 +2,7 @@
 
 from datetime import time
 
+import pytest
 from sqlalchemy import delete, select
 
 from app.db.database import SessionLocal
@@ -11,6 +12,7 @@ from tests.test_booking_api import (  # noqa: F401  (admin_headers and mock_emai
     at,
     availability,
     book,
+    client,
     create_barber,
     create_service,
     future_business_day,
@@ -159,3 +161,182 @@ def test_time_off_for_one_barber_does_not_affect_another(admin_headers) -> None:
 
     assert availability(away["id"], service["id"], day) == []
     assert len(availability(working["id"], service["id"], day)) == 18
+
+
+# ------------------------------------------------------------ admin API ---
+
+
+def hours_url(barber_id: int) -> str:
+    return f"/api/v1/barbers/{barber_id}/working-hours"
+
+
+def time_off_url(barber_id: int) -> str:
+    return f"/api/v1/barbers/{barber_id}/time-off"
+
+
+def test_get_working_hours_returns_the_default_schedule(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+
+    response = client.get(hours_url(barber["id"]), headers=admin_headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == [
+        {"weekday": weekday, "start_time": "09:00:00", "end_time": "18:00:00"} for weekday in (1, 2, 3, 4, 5)
+    ]
+
+
+def test_replacing_working_hours_changes_availability(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers, duration_minutes=30)
+    day = future_business_day()
+    new_schedule = [
+        {"weekday": day.weekday(), "start_time": "10:00", "end_time": "11:00"},
+        {"weekday": day.weekday(), "start_time": "14:00", "end_time": "15:00"},
+    ]
+
+    response = client.put(hours_url(barber["id"]), json=new_schedule, headers=admin_headers)
+
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 2
+    assert hh_mm(availability(barber["id"], service["id"], day)) == ["10:00", "10:30", "14:00", "14:30"]
+    # Every other weekday was removed by the replace.
+    other_day = future_business_day(days_ahead=8)
+    assert other_day.weekday() != day.weekday()
+    assert availability(barber["id"], service["id"], other_day) == []
+
+
+def test_empty_schedule_means_not_working_any_day(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+
+    response = client.put(hours_url(barber["id"]), json=[], headers=admin_headers)
+
+    assert response.status_code == 200, response.text
+    assert client.get(hours_url(barber["id"]), headers=admin_headers).json() == []
+
+
+@pytest.mark.parametrize(
+    ("block", "message"),
+    [
+        ({"weekday": 0, "start_time": "09:00", "end_time": "12:00"}, "closed on Mondays"),
+        ({"weekday": 2, "start_time": "08:00", "end_time": "12:00"}, "within opening hours"),
+        ({"weekday": 2, "start_time": "12:00", "end_time": "18:30"}, "within opening hours"),
+        ({"weekday": 2, "start_time": "10:15", "end_time": "12:00"}, "half hour"),
+        ({"weekday": 2, "start_time": "12:00", "end_time": "10:00"}, "after the start"),
+    ],
+)
+def test_invalid_working_hours_are_rejected(block, message, admin_headers) -> None:
+    barber = create_barber(admin_headers)
+
+    response = client.put(hours_url(barber["id"]), json=[block], headers=admin_headers)
+
+    assert response.status_code == 422, response.text
+    assert message in response.json()["detail"]
+    # The old schedule is untouched.
+    assert len(client.get(hours_url(barber["id"]), headers=admin_headers).json()) == 5
+
+
+def test_overlapping_blocks_are_rejected(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    blocks = [
+        {"weekday": 3, "start_time": "09:00", "end_time": "13:00"},
+        {"weekday": 3, "start_time": "12:00", "end_time": "15:00"},
+    ]
+
+    response = client.put(hours_url(barber["id"]), json=blocks, headers=admin_headers)
+
+    assert response.status_code == 422, response.text
+    assert "overlap" in response.json()["detail"]
+
+
+def test_schedule_endpoints_return_404_for_unknown_barber(admin_headers) -> None:
+    assert client.get(hours_url(999999), headers=admin_headers).status_code == 404
+    assert client.put(hours_url(999999), json=[], headers=admin_headers).status_code == 404
+    assert client.get(time_off_url(999999), headers=admin_headers).status_code == 404
+
+
+def test_time_off_lifecycle_and_conflicting_bookings(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers, duration_minutes=30)
+    day = future_business_day()
+    existing = book(barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"), customer_name="Already Booked")
+    assert existing.status_code == 200, existing.text
+
+    created = client.post(
+        time_off_url(barber["id"]),
+        json={"starts_at": at(day, "09:00"), "ends_at": at(day, "12:00"), "reason": "Dentist"},
+        headers=admin_headers,
+    )
+
+    # Created, and the existing booking inside the period is reported, not cancelled.
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["time_off"]["reason"] == "Dentist"
+    assert [a["customer_name"] for a in body["conflicting_appointments"]] == ["Already Booked"]
+    appointments = client.get("/api/v1/appointments", headers=admin_headers).json()
+    assert next(a for a in appointments if a["id"] == existing.json()["id"])["status"] != "cancelled"
+
+    # It shows in the list and blocks those times.
+    listed = client.get(time_off_url(barber["id"]), headers=admin_headers).json()
+    assert [t["id"] for t in listed] == [body["time_off"]["id"]]
+    assert "11:00" not in hh_mm(availability(barber["id"], service["id"], day))
+
+    # Deleting it frees the times again.
+    deleted = client.delete(f"{time_off_url(barber['id'])}/{body['time_off']['id']}", headers=admin_headers)
+    assert deleted.status_code == 204, deleted.text
+    assert client.get(time_off_url(barber["id"]), headers=admin_headers).json() == []
+    assert "11:00" in hh_mm(availability(barber["id"], service["id"], day))
+
+
+def test_past_time_off_is_hidden_unless_requested(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    last_year = future_business_day().replace(year=2020)
+    add_time_off(barber["id"], stockholm(last_year, "09:00"), stockholm(last_year, "12:00"))
+
+    assert client.get(time_off_url(barber["id"]), headers=admin_headers).json() == []
+    assert len(client.get(f"{time_off_url(barber['id'])}?include_past=true", headers=admin_headers).json()) == 1
+
+
+@pytest.mark.parametrize(
+    ("starts", "ends", "message"),
+    [
+        ("12:00", "09:00", "after the start"),
+        ("12:00", "12:00", "after the start"),
+    ],
+)
+def test_invalid_time_off_is_rejected(starts, ends, message, admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    day = future_business_day()
+
+    response = client.post(
+        time_off_url(barber["id"]), json={"starts_at": at(day, starts), "ends_at": at(day, ends)}, headers=admin_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert message in response.json()["detail"]
+
+
+def test_time_off_longer_than_a_year_is_rejected(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    day = future_business_day()
+
+    response = client.post(
+        time_off_url(barber["id"]),
+        json={"starts_at": at(day, "09:00"), "ends_at": at(day.replace(year=day.year + 2), "09:00")},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422, response.text
+
+
+def test_cannot_delete_another_barbers_time_off(admin_headers) -> None:
+    owner = create_barber(admin_headers)
+    other = create_barber(admin_headers)
+    day = future_business_day()
+    created = client.post(
+        time_off_url(owner["id"]), json={"starts_at": at(day, "09:00"), "ends_at": at(day, "12:00")}, headers=admin_headers,
+    ).json()
+
+    response = client.delete(f"{time_off_url(other['id'])}/{created['time_off']['id']}", headers=admin_headers)
+
+    assert response.status_code == 404, response.text
+    assert len(client.get(time_off_url(owner["id"]), headers=admin_headers).json()) == 1

@@ -22,6 +22,13 @@ SHOP_CLOSES = time(18, 0)
 SHOP_OPEN_WEEKDAYS = {1, 2, 3, 4, 5}  # date.weekday(): Monday = 0, so Tue-Sat
 
 
+def ensure_stockholm_datetime(value: datetime) -> datetime:
+    """Naive datetimes from the client are Stockholm time; aware ones are converted."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=STOCKHOLM_TZ)
+    return value.astimezone(STOCKHOLM_TZ)
+
+
 def is_shop_open_day(day: date) -> bool:
     return day.weekday() in SHOP_OPEN_WEEKDAYS
 
@@ -80,3 +87,38 @@ def has_time_off(db: Session, barber_id: int, starts_at: datetime, ends_at: date
         )
     ).first()
     return overlap is not None
+
+
+WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def validate_working_hours(blocks: list[tuple[int, time, time]]) -> list[str]:
+    """Check a whole weekly schedule. Returns a list of problems (empty = valid).
+
+    Rules: only on shop open days, inside shop hours, on :00 or :30 (slots are
+    offered every 30 minutes), end after start, and no overlapping blocks.
+    """
+    problems = []
+    for weekday, start, end in blocks:
+        day = WEEKDAY_NAMES[weekday]
+        if weekday not in SHOP_OPEN_WEEKDAYS:
+            problems.append(f"The shop is closed on {day}s.")
+        if end <= start:
+            problems.append(f"{day}: the end time must be after the start time.")
+        if start < SHOP_OPENS or end > SHOP_CLOSES:
+            problems.append(f"{day}: hours must be within opening hours (09:00-18:00).")
+        for value in (start, end):
+            if value.minute not in (0, 30) or value.second or value.microsecond:
+                problems.append(f"{day}: times must be on the hour or half hour ({value.strftime('%H:%M')}).")
+
+    by_day: dict[int, list[tuple[time, time]]] = {}
+    for weekday, start, end in blocks:
+        by_day.setdefault(weekday, []).append((start, end))
+    for weekday, day_blocks in by_day.items():
+        day_blocks.sort()
+        for (_, previous_end), (next_start, _) in zip(day_blocks, day_blocks[1:]):
+            if next_start < previous_end:
+                problems.append(f"{WEEKDAY_NAMES[weekday]}: working blocks overlap.")
+
+    # Keep the order but drop duplicates (e.g. one closed day sent twice).
+    return list(dict.fromkeys(problems))
