@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ADMIN_TOKEN_KEY, API_BASE, NETWORK_ERROR, fetchJson, getErrorMessage } from '../api.js'
+import { API_BASE, NETWORK_ERROR, fetchJson, getErrorMessage, saveSession } from '../api.js'
 
 export function AdminLoginPage() {
   const navigate = useNavigate()
@@ -36,7 +36,7 @@ export function AdminLoginPage() {
       return
     }
 
-    localStorage.setItem(ADMIN_TOKEN_KEY, data.token)
+    saveSession(data)
     setAdminMessage({ type: 'success', text: 'Logged in successfully.' })
     navigate('/admin/appointments')
   }

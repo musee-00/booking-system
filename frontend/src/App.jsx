@@ -53,7 +53,7 @@ function App() {
           <Route
             path="/admin/team"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute ownerOnly>
                 <AdminTeamPage />
               </ProtectedRoute>
             }

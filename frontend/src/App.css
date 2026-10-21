@@ -1928,3 +1928,14 @@ button {
 .admin-offered-by small {
   flex-basis: 100%;
 }
+
+/* Barber login panel */
+.admin-login-password {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-login-password input {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

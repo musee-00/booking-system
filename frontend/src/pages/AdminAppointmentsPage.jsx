@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ADMIN_TOKEN_KEY, API_BASE, NETWORK_ERROR, fetchJson, getTokenUsername, useAdminFetch } from '../api.js'
+import { API_BASE, NETWORK_ERROR, clearSession, fetchJson, getSession, useAdminFetch } from '../api.js'
 const OPENING_HOUR = 9
 const CLOSING_HOUR = 18
 const SLOT_MINUTES = 30
@@ -102,7 +102,8 @@ export function AdminAppointmentsPage() {
   const navigate = useNavigate()
   const adminFetch = useAdminFetch()
   // ProtectedRoute guarantees a token exists; the API checks if it's valid.
-  const [adminUsername] = useState(() => getTokenUsername(localStorage.getItem(ADMIN_TOKEN_KEY)))
+  // Owner sees every barber; a barber only themselves (the API filters bookings too).
+  const [session] = useState(getSession)
   const [adminMessage, setAdminMessage] = useState({ type: '', text: '' })
   const [services, setServices] = useState([])
   const [barbers, setBarbers] = useState([])
@@ -139,7 +140,11 @@ export function AdminAppointmentsPage() {
 
   // Inactive barbers/services are kept so existing bookings show the right
   // name and colour, but new bookings can only use active ones.
-  const activeBarbers = useMemo(() => barbers.filter((barber) => barber.active), [barbers])
+  const visibleBarbers = useMemo(
+    () => (session.isOwner ? barbers : barbers.filter((barber) => barber.id === session.barberId)),
+    [barbers, session],
+  )
+  const activeBarbers = useMemo(() => visibleBarbers.filter((barber) => barber.active), [visibleBarbers])
   const activeServices = useMemo(() => services.filter((service) => service.active), [services])
 
   const timeMarkers = useMemo(
@@ -196,7 +201,7 @@ export function AdminAppointmentsPage() {
   // Day view: one column per barber. Week view: one column per day.
   const calendarColumns = useMemo(() => {
     if (viewMode === 'day') {
-      return barbers
+      return visibleBarbers
         .map((barber) => ({
           id: `barber-${barber.id}`,
           type: 'barber',
@@ -220,7 +225,7 @@ export function AdminAppointmentsPage() {
       date: day.date,
       appointments: visibleAppointments.filter((item) => isSameDateKey(item.starts_at, day.date)),
     }))
-  }, [barbers, selectedDate, viewMode, visibleAppointments, weekDates])
+  }, [visibleBarbers, selectedDate, viewMode, visibleAppointments, weekDates])
 
   const getAppointmentLayout = (appointments, appointment) => {
     const sortedAppointments = [...appointments].sort((left, right) => new Date(left.starts_at) - new Date(right.starts_at))
@@ -470,7 +475,7 @@ export function AdminAppointmentsPage() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem(ADMIN_TOKEN_KEY)
+    clearSession()
     navigate('/admin', { replace: true })
   }
 
@@ -489,7 +494,9 @@ export function AdminAppointmentsPage() {
           </div>
 
           <div className="admin-toolbar">
-            <span className="admin-chip">Signed in as {adminUsername}</span>
+            <span className="admin-chip">
+              Signed in as {session.username}{session.isOwner ? ' (owner)' : ''}
+            </span>
             <div className="admin-calendar-toggle" aria-label="Calendar view switcher">
               <button
                 type="button"
@@ -506,7 +513,7 @@ export function AdminAppointmentsPage() {
                 Week
               </button>
             </div>
-            <Link to="/admin/team" className="admin-secondary-button">Team &amp; services</Link>
+            {session.isOwner && <Link to="/admin/team" className="admin-secondary-button">Team &amp; services</Link>}
             <Link to="/" className="admin-secondary-button">Customer page</Link>
             <button className="admin-secondary-button" onClick={() => setShowCancelled((current) => !current)} type="button">
               {showCancelled ? 'Hide cancelled' : 'Show cancelled'}
@@ -525,7 +532,7 @@ export function AdminAppointmentsPage() {
             <div className="admin-panel__header">
               <div>
                 <p className="admin-kicker">Overview</p>
-                <h2>Appointments</h2>
+                <h2>{session.isOwner ? 'Appointments' : 'My appointments'}</h2>
               </div>
 
               <div className="admin-calendar-nav">

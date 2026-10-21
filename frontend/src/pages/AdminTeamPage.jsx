@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ADMIN_TOKEN_KEY, NETWORK_ERROR, getErrorMessage, useAdminFetch } from '../api.js'
+import { NETWORK_ERROR, clearSession, getErrorMessage, useAdminFetch } from '../api.js'
+import { BarberLogin } from '../components/BarberLogin.jsx'
 import { BarberSchedule } from '../components/BarberSchedule.jsx'
 
 const DEFAULT_BARBER_COLOR = '#d9b57f'
@@ -79,16 +80,20 @@ export function AdminTeamPage() {
   const [isSaving, setIsSaving] = useState(false)
   // The barber whose working hours / time off are open, if any.
   const [scheduleBarber, setScheduleBarber] = useState(null)
+  const [loginBarber, setLoginBarber] = useState(null)
+  const [accounts, setAccounts] = useState([])
 
   // Fetch both lists. Returns null after a 401 (useAdminFetch already redirects).
   const fetchLists = useCallback(async () => {
-    const [barbersResult, servicesResult] = await Promise.all([
+    const results = await Promise.all([
       adminFetch('/admin/barbers'),
       adminFetch('/admin/services'),
+      adminFetch('/accounts'),
     ])
-    if (barbersResult.response.status === 401 || servicesResult.response.status === 401) return null
-    if (!barbersResult.response.ok || !servicesResult.response.ok) throw new Error('Load failed')
-    return { barbers: barbersResult.data, services: servicesResult.data }
+    if (results.some(({ response }) => response.status === 401)) return null
+    if (results.some(({ response }) => !response.ok)) throw new Error('Load failed')
+    const [barbersResult, servicesResult, accountsResult] = results
+    return { barbers: barbersResult.data, services: servicesResult.data, accounts: accountsResult.data }
   }, [adminFetch])
 
   // Initial load. State is only set after the response arrives, and not at all
@@ -100,6 +105,7 @@ export function AdminTeamPage() {
         if (ignore || !lists) return
         setBarbers(lists.barbers)
         setServices(lists.services)
+        setAccounts(lists.accounts)
       })
       .catch(() => {
         if (!ignore) setLoadError(NETWORK_ERROR)
@@ -116,6 +122,7 @@ export function AdminTeamPage() {
       if (!lists) return
       setBarbers(lists.barbers)
       setServices(lists.services)
+      setAccounts(lists.accounts)
       setLoadError('')
     } catch {
       setLoadError(NETWORK_ERROR)
@@ -124,12 +131,23 @@ export function AdminTeamPage() {
 
   const openSchedule = (barber) => {
     setEditing(null)
+    setLoginBarber(null)
     setMessage({ type: '', text: '' })
     setScheduleBarber(barber)
   }
 
+  const openLogin = (barber) => {
+    setEditing(null)
+    setScheduleBarber(null)
+    setMessage({ type: '', text: '' })
+    setLoginBarber(barber)
+  }
+
+  const accountFor = (barberId) => accounts.find((account) => account.barber_id === barberId)
+
   const startAdd = (kind) => {
     setScheduleBarber(null)
+    setLoginBarber(null)
     const values = { ...FORMS[kind].empty }
     // A new service is offered by every active barber; untick the ones who don't.
     if (kind === 'service') values.barber_ids = barbers.filter((barber) => barber.active).map((barber) => barber.id)
@@ -207,7 +225,7 @@ export function AdminTeamPage() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem(ADMIN_TOKEN_KEY)
+    clearSession()
     navigate('/admin', { replace: true })
   }
 
@@ -293,7 +311,10 @@ export function AdminTeamPage() {
       <span className={`admin-chip ${record.active ? '' : 'admin-chip--muted'}`}>{record.active ? 'Active' : 'Inactive'}</span>
       <div className="admin-manage-row__actions">
         {kind === 'barber' && (
-          <button type="button" className="admin-secondary-button" onClick={() => openSchedule(record)}>Hours &amp; time off</button>
+          <>
+            <button type="button" className="admin-secondary-button" onClick={() => openLogin(record)}>Login</button>
+            <button type="button" className="admin-secondary-button" onClick={() => openSchedule(record)}>Hours &amp; time off</button>
+          </>
         )}
         <button type="button" className="admin-secondary-button" onClick={() => startEdit(kind, record)}>Edit</button>
         <button type="button" className="admin-secondary-button" onClick={() => toggleActive(kind, record)}>
@@ -347,11 +368,27 @@ export function AdminTeamPage() {
               />
             )}
 
+            {loginBarber && (
+              <BarberLogin
+                key={loginBarber.id}
+                barber={loginBarber}
+                account={accountFor(loginBarber.id)}
+                adminFetch={adminFetch}
+                onChanged={loadAll}
+                onClose={() => setLoginBarber(null)}
+              />
+            )}
+
             <ul className="admin-manage-list">
               {barbers.map((barber) => renderRow(
                 'barber',
                 barber,
-                [barber.role || 'Barber', barber.email, barber.phone].filter(Boolean).join(' · '),
+                [
+                  barber.role || 'Barber',
+                  barber.email,
+                  barber.phone,
+                  accountFor(barber.id) ? `login: ${accountFor(barber.id).username}` : 'no login',
+                ].filter(Boolean).join(' · '),
               ))}
             </ul>
           </section>

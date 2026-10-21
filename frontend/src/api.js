@@ -7,6 +7,8 @@ import { useNavigate } from 'react-router-dom'
 const API_ORIGIN = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '')
 export const API_BASE = `${API_ORIGIN}/api/v1`
 export const ADMIN_TOKEN_KEY = 'booking-admin-token'
+const ADMIN_ROLE_KEY = 'booking-admin-role'
+const ADMIN_BARBER_KEY = 'booking-admin-barber'
 export const NETWORK_ERROR = "Can't reach the server. Check your connection and try again."
 const SESSION_EXPIRED_MESSAGE = 'Your session has expired, please log in again'
 
@@ -46,6 +48,27 @@ export const getTokenUsername = (token) => {
   }
 }
 
+// The logged-in staff member. The role only decides what the UI shows; the API
+// checks the role itself on every request, so changing these values in the
+// browser doesn't give a barber more access.
+export const saveSession = ({ token, role, barber_id: barberId }) => {
+  localStorage.setItem(ADMIN_TOKEN_KEY, token)
+  localStorage.setItem(ADMIN_ROLE_KEY, role)
+  if (barberId) localStorage.setItem(ADMIN_BARBER_KEY, String(barberId))
+  else localStorage.removeItem(ADMIN_BARBER_KEY)
+}
+
+export const getSession = () => {
+  const token = localStorage.getItem(ADMIN_TOKEN_KEY) || ''
+  const role = localStorage.getItem(ADMIN_ROLE_KEY) || 'owner'
+  const barberId = Number(localStorage.getItem(ADMIN_BARBER_KEY)) || null
+  return { token, role, barberId, isOwner: role === 'owner', username: getTokenUsername(token) }
+}
+
+export const clearSession = () => {
+  for (const key of [ADMIN_TOKEN_KEY, ADMIN_ROLE_KEY, ADMIN_BARBER_KEY]) localStorage.removeItem(key)
+}
+
 // Returns a fetch function for admin-only endpoints. It sends the stored JWT,
 // and on a 401 (token missing, expired or forged) it drops the token and sends
 // the user back to the login page with a "session expired" message.
@@ -62,7 +85,7 @@ export function useAdminFetch() {
     })
 
     if (result.response.status === 401) {
-      localStorage.removeItem(ADMIN_TOKEN_KEY)
+      clearSession()
       navigate('/admin', { replace: true, state: { message: SESSION_EXPIRED_MESSAGE } })
     }
 
