@@ -197,7 +197,8 @@ def test_replacing_working_hours_changes_availability(admin_headers) -> None:
     response = client.put(hours_url(barber["id"]), json=new_schedule, headers=admin_headers)
 
     assert response.status_code == 200, response.text
-    assert len(response.json()) == 2
+    assert len(response.json()["working_hours"]) == 2
+    assert response.json()["conflicting_appointments"] == []
     assert hh_mm(availability(barber["id"], service["id"], day)) == ["10:00", "10:30", "14:00", "14:30"]
     # Every other weekday was removed by the replace.
     other_day = future_business_day(days_ahead=8)
@@ -340,3 +341,41 @@ def test_cannot_delete_another_barbers_time_off(admin_headers) -> None:
 
     assert response.status_code == 404, response.text
     assert len(client.get(time_off_url(owner["id"]), headers=admin_headers).json()) == 1
+
+
+def test_saving_hours_reports_bookings_that_fall_outside_them(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers, duration_minutes=30)
+    day = future_business_day()
+    in_break = book(barber["id"], service["id"], at(day, "12:00"), at(day, "12:30"), customer_name="In Break")
+    still_fine = book(barber["id"], service["id"], at(day, "10:00"), at(day, "10:30"), customer_name="Still Fine")
+    assert in_break.status_code == 200 and still_fine.status_code == 200
+
+    # New hours: works 09-18 with a break 12-13 on that day, nothing on other days.
+    response = client.put(
+        hours_url(barber["id"]),
+        json=[
+            {"weekday": day.weekday(), "start_time": "09:00", "end_time": "12:00"},
+            {"weekday": day.weekday(), "start_time": "13:00", "end_time": "18:00"},
+        ],
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    conflicts = response.json()["conflicting_appointments"]
+    assert [c["customer_name"] for c in conflicts] == ["In Break"]
+    # The booking is kept, not cancelled.
+    appointments = client.get("/api/v1/appointments", headers=admin_headers).json()
+    assert next(a for a in appointments if a["id"] == in_break.json()["id"])["status"] != "cancelled"
+
+
+def test_cancelled_bookings_are_not_reported(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    service = create_service(admin_headers, duration_minutes=30)
+    day = future_business_day()
+    booking = book(barber["id"], service["id"], at(day, "12:00"), at(day, "12:30"))
+    client.patch(f"/api/v1/appointments/{booking.json()['id']}/cancel", headers=admin_headers)
+
+    response = client.put(hours_url(barber["id"]), json=[], headers=admin_headers)
+
+    assert response.json()["conflicting_appointments"] == []

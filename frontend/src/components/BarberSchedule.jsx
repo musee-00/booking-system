@@ -103,6 +103,27 @@ const describeTimeOff = (item) => {
     : `${formatDate(start)} – ${formatDate(lastDay)}`
 }
 
+// Existing bookings that clash with new hours or new time off. They're never
+// cancelled automatically; the barber decides what to do.
+function ConflictList({ appointments, reason }) {
+  if (!appointments.length) return null
+  return (
+    <div className="admin-status-message error admin-schedule__wide" role="alert">
+      <strong>
+        {appointments.length === 1 ? '1 customer is' : `${appointments.length} customers are`} already booked {reason}.
+      </strong>{' '}
+      Their bookings were not cancelled. Contact them to move or cancel:
+      <ul>
+        {appointments.map((appointment) => (
+          <li key={appointment.id}>
+            {formatDateTime(appointment.starts_at)} · {appointment.customer_name} · {appointment.customer_phone}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 const EMPTY_TIME_OFF = { wholeDays: true, fromDate: '', toDate: '', date: '', fromTime: '12:00', toTime: '13:00', reason: '' }
 
 export function BarberSchedule({ barber, adminFetch, onClose }) {
@@ -111,6 +132,7 @@ export function BarberSchedule({ barber, adminFetch, onClose }) {
   const [loadError, setLoadError] = useState('')
   const [hoursMessage, setHoursMessage] = useState({ type: '', text: '' })
   const [isSavingHours, setIsSavingHours] = useState(false)
+  const [hoursConflicts, setHoursConflicts] = useState([])
   const [timeOffForm, setTimeOffForm] = useState(EMPTY_TIME_OFF)
   const [timeOffMessage, setTimeOffMessage] = useState({ type: '', text: '' })
   const [conflicts, setConflicts] = useState([])
@@ -180,6 +202,7 @@ export function BarberSchedule({ barber, adminFetch, onClose }) {
 
     setIsSavingHours(true)
     setHoursMessage({ type: '', text: '' })
+    setHoursConflicts([])
     try {
       const { response, data } = await adminFetch(`${basePath}/working-hours`, {
         method: 'PUT',
@@ -190,7 +213,8 @@ export function BarberSchedule({ barber, adminFetch, onClose }) {
         setHoursMessage({ type: 'error', text: getErrorMessage(data, 'Could not save the hours.') })
         return
       }
-      setWeek(toWeek(data))
+      setWeek(toWeek(data.working_hours))
+      setHoursConflicts(data.conflicting_appointments)
       setHoursMessage({ type: 'success', text: 'Working hours saved. Customers now only see these times.' })
     } catch {
       setHoursMessage({ type: 'error', text: NETWORK_ERROR })
@@ -318,6 +342,7 @@ export function BarberSchedule({ barber, adminFetch, onClose }) {
           </div>
 
           {hoursMessage.text && <p className={`admin-status-message ${hoursMessage.type}`} role="status">{hoursMessage.text}</p>}
+          <ConflictList appointments={hoursConflicts} reason="at times outside these hours" />
           <div className="admin-panel-actions">
             <button type="button" className="admin-primary-button" onClick={saveHours} disabled={isSavingHours}>
               {isSavingHours ? 'Saving…' : 'Save hours'}
@@ -400,21 +425,7 @@ export function BarberSchedule({ barber, adminFetch, onClose }) {
               <p className={`admin-status-message ${timeOffMessage.type} admin-schedule__wide`} role="status">{timeOffMessage.text}</p>
             )}
 
-            {conflicts.length > 0 && (
-              <div className="admin-status-message error admin-schedule__wide" role="alert">
-                <strong>
-                  {conflicts.length === 1 ? '1 customer is' : `${conflicts.length} customers are`} already booked in this time.
-                </strong>{' '}
-                Their bookings were not cancelled. Contact them to move or cancel:
-                <ul>
-                  {conflicts.map((appointment) => (
-                    <li key={appointment.id}>
-                      {formatDateTime(appointment.starts_at)} · {appointment.customer_name} · {appointment.customer_phone}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <ConflictList appointments={conflicts} reason="in this time" />
 
             <div className="admin-panel-actions admin-schedule__wide">
               <button type="submit" className="admin-primary-button">Add time off</button>

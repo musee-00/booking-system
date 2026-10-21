@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 from app.auth import require_admin
 from app.db.database import get_db
 from app.models import Appointment, Barber, BarberTimeOff, BarberWorkingHours
-from app.schedule import STOCKHOLM_TZ, ensure_stockholm_datetime, validate_working_hours
-from app.schemas import TimeOffCreate, TimeOffCreated, TimeOffRead, WorkingHoursBlock
+from app.schedule import STOCKHOLM_TZ, ensure_stockholm_datetime, is_within_working_hours, validate_working_hours
+from app.schemas import TimeOffCreate, TimeOffCreated, TimeOffRead, WorkingHoursBlock, WorkingHoursSaved
 
 # Every route in this file is admin-only: the dependency is set once on the
 # router, so a new endpoint added here can't accidentally be public.
@@ -31,13 +31,14 @@ def get_working_hours(barber_id: int, db: Session = Depends(get_db)) -> list[Bar
     return get_barber_or_404(db, barber_id).working_hours
 
 
-@router.put("/{barber_id}/working-hours", response_model=list[WorkingHoursBlock])
+@router.put("/{barber_id}/working-hours", response_model=WorkingHoursSaved)
 def replace_working_hours(
     barber_id: int, blocks: list[WorkingHoursBlock], db: Session = Depends(get_db)
-) -> list[BarberWorkingHours]:
+) -> WorkingHoursSaved:
     """Replace the whole weekly schedule. An empty list means the barber doesn't work any day.
 
-    Existing bookings are kept even if they now fall outside the new hours.
+    Existing bookings are kept even if they now fall outside the new hours;
+    they're returned as conflicting_appointments so the admin can act on them.
     """
     barber = get_barber_or_404(db, barber_id)
 
@@ -54,7 +55,22 @@ def replace_working_hours(
     )
     db.commit()
     db.refresh(barber)
-    return barber.working_hours
+
+    upcoming = db.scalars(
+        select(Appointment)
+        .where(
+            Appointment.barber_id == barber.id,
+            Appointment.status != "cancelled",
+            Appointment.starts_at >= datetime.now(STOCKHOLM_TZ),
+        )
+        .order_by(Appointment.starts_at)
+    ).all()
+    outside_new_hours = [
+        appointment for appointment in upcoming
+        if not is_within_working_hours(db, barber.id, appointment.starts_at, appointment.ends_at)
+    ]
+
+    return WorkingHoursSaved(working_hours=barber.working_hours, conflicting_appointments=outside_new_hours)
 
 
 @router.get("/{barber_id}/time-off", response_model=list[TimeOffRead])

@@ -158,3 +158,10 @@ class TimeOffCreated(BaseModel):
     time_off: TimeOffRead
     # Time off doesn't cancel bookings automatically; the admin decides what to do.
     conflicting_appointments: list[ConflictingAppointment]
+
+
+class WorkingHoursSaved(BaseModel):
+    working_hours: list[WorkingHoursBlock]
+    # Upcoming bookings that now fall outside the barber's hours. They are kept;
+    # the admin decides whether to contact the customers.
+    conflicting_appointments: list[ConflictingAppointment]
