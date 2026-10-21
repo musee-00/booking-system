@@ -9,13 +9,35 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.database import Base
 
 
+ROLE_OWNER = "owner"
+ROLE_BARBER = "barber"
+
+
 class AdminUser(Base):
+    """A staff login. Like Setmore's access levels:
+
+    - owner:  everything (services, hours, accounts, all bookings)  ~ Setmore "Admin"
+    - barber: only their own calendar (their own bookings)           ~ Setmore "Standard"
+    """
+
     __tablename__ = "admin_users"
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'barber')", name="ck_admin_users_role"),
+        # A barber account must belong to a barber; an owner account must not.
+        CheckConstraint("(role = 'barber') = (barber_id IS NOT NULL)", name="ck_admin_users_barber_link"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default=ROLE_OWNER, server_default=ROLE_OWNER, nullable=False)
+    # unique: at most one login per barber.
+    barber_id: Mapped[int | None] = mapped_column(
+        ForeignKey("barbers.id", ondelete="CASCADE"), unique=True, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    barber: Mapped["Barber | None"] = relationship()
 
 
 # Which barber offers which service (many-to-many). Like Setmore: the shop has

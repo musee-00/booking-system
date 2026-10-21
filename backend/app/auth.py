@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import get_db
-from app.models import AdminUser
+from app.models import ROLE_BARBER, ROLE_OWNER, AdminUser
 
 # auto_error=False so we can return our own 401 message instead of FastAPI's 403.
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -59,11 +59,15 @@ def get_admin_user_from_token(db: Session, token: str) -> AdminUser:
     return user
 
 
-def require_admin(
+def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> AdminUser:
-    """FastAPI dependency: add `Depends(require_admin)` to any admin-only route."""
+    """Authentication: who is calling? Any valid staff login passes, otherwise 401.
+
+    The role is read from the database on every request (not from the token),
+    so deactivating a barber or deleting their account takes effect immediately.
+    """
     unauthorized_headers = {"WWW-Authenticate": "Bearer"}
 
     if credentials is None:
@@ -74,10 +78,28 @@ def require_admin(
         )
 
     try:
-        return get_admin_user_from_token(db, credentials.credentials)
+        user = get_admin_user_from_token(db, credentials.credentials)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired admin token.",
             headers=unauthorized_headers,
         ) from exc
+
+    if user.role == ROLE_BARBER and (user.barber is None or not user.barber.active):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account is disabled.",
+            headers=unauthorized_headers,
+        )
+    return user
+
+
+def require_owner(user: AdminUser = Depends(get_current_user)) -> AdminUser:
+    """Authorization: may this user do it? Owner-only actions, otherwise 403.
+
+    401 = "I don't know who you are"; 403 = "I know who you are, but no".
+    """
+    if user.role != ROLE_OWNER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the owner can do this.")
+    return user

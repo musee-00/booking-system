@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.auth import require_admin
+from app.auth import get_current_user, require_owner
 from app.db.database import get_db
-from app.models import Appointment, Barber, BarberTimeOff, BarberWorkingHours
+from app.models import ROLE_BARBER, AdminUser, Appointment, Barber, BarberTimeOff, BarberWorkingHours
 from app.schedule import STOCKHOLM_TZ, ensure_stockholm_datetime, is_within_working_hours, validate_working_hours
 from app.schemas import (
     BarberScheduleRead,
@@ -19,9 +19,11 @@ from app.schemas import (
     WorkingHoursSaved,
 )
 
-# Every route in this file is admin-only: the dependency is set once on the
-# router, so a new endpoint added here can't accidentally be public.
-router = APIRouter(prefix="/api/v1/barbers", tags=["schedules"], dependencies=[Depends(require_admin)])
+# Every route here needs a staff login (set once on the router, so nothing can
+# accidentally be public). Changing schedules additionally needs the owner
+# role (OWNER_ONLY on each route); a barber can only read their own schedule.
+router = APIRouter(prefix="/api/v1/barbers", tags=["schedules"], dependencies=[Depends(get_current_user)])
+OWNER_ONLY = [Depends(require_owner)]
 
 MAX_TIME_OFF = timedelta(days=366)
 MAX_SCHEDULE_RANGE = timedelta(days=62)
@@ -38,6 +40,7 @@ def get_barber_or_404(db: Session, barber_id: int) -> Barber:
 def list_schedules(
     start: date = Query(..., description="First day, e.g. 2026-10-19"),
     end: date = Query(..., description="Last day (inclusive)"),
+    user: AdminUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[BarberScheduleRead]:
     """Every barber's weekly hours and their time off between start and end.
@@ -52,7 +55,10 @@ def list_schedules(
     range_start = datetime.combine(start, time(0), tzinfo=STOCKHOLM_TZ)
     range_end = datetime.combine(end + timedelta(days=1), time(0), tzinfo=STOCKHOLM_TZ)
 
-    barbers = db.scalars(select(Barber).order_by(Barber.id)).all()
+    barber_query = select(Barber).order_by(Barber.id)
+    if user.role == ROLE_BARBER:
+        barber_query = barber_query.where(Barber.id == user.barber_id)  # only their own schedule
+    barbers = db.scalars(barber_query).all()
     time_off = db.scalars(
         select(BarberTimeOff)
         .where(BarberTimeOff.starts_at < range_end, BarberTimeOff.ends_at > range_start)
@@ -69,12 +75,12 @@ def list_schedules(
     ]
 
 
-@router.get("/{barber_id}/working-hours", response_model=list[WorkingHoursBlock])
+@router.get("/{barber_id}/working-hours", response_model=list[WorkingHoursBlock], dependencies=OWNER_ONLY)
 def get_working_hours(barber_id: int, db: Session = Depends(get_db)) -> list[BarberWorkingHours]:
     return get_barber_or_404(db, barber_id).working_hours
 
 
-@router.put("/{barber_id}/working-hours", response_model=WorkingHoursSaved)
+@router.put("/{barber_id}/working-hours", response_model=WorkingHoursSaved, dependencies=OWNER_ONLY)
 def replace_working_hours(
     barber_id: int, blocks: list[WorkingHoursBlock], db: Session = Depends(get_db)
 ) -> WorkingHoursSaved:
@@ -116,7 +122,7 @@ def replace_working_hours(
     return WorkingHoursSaved(working_hours=barber.working_hours, conflicting_appointments=outside_new_hours)
 
 
-@router.get("/{barber_id}/time-off", response_model=list[TimeOffRead])
+@router.get("/{barber_id}/time-off", response_model=list[TimeOffRead], dependencies=OWNER_ONLY)
 def list_time_off(
     barber_id: int,
     include_past: bool = Query(default=False),
@@ -130,7 +136,9 @@ def list_time_off(
     return db.scalars(query.order_by(BarberTimeOff.starts_at)).all()
 
 
-@router.post("/{barber_id}/time-off", response_model=TimeOffCreated, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{barber_id}/time-off", response_model=TimeOffCreated, status_code=status.HTTP_201_CREATED, dependencies=OWNER_ONLY
+)
 def create_time_off(barber_id: int, payload: TimeOffCreate, db: Session = Depends(get_db)) -> TimeOffCreated:
     barber = get_barber_or_404(db, barber_id)
     starts_at = ensure_stockholm_datetime(payload.starts_at)
@@ -165,7 +173,7 @@ def create_time_off(barber_id: int, payload: TimeOffCreate, db: Session = Depend
     )
 
 
-@router.delete("/{barber_id}/time-off/{time_off_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{barber_id}/time-off/{time_off_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=OWNER_ONLY)
 def delete_time_off(barber_id: int, time_off_id: int, db: Session = Depends(get_db)) -> Response:
     time_off = db.get(BarberTimeOff, time_off_id)
     # Also 404 if it belongs to another barber, so ids can't be mixed up.

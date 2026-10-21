@@ -120,6 +120,44 @@ class AdminLoginRequest(BaseModel):
 
 class AdminLoginResponse(BaseModel):
     token: str
+    role: str
+    barber_id: int | None = None
+
+
+class CurrentUserRead(BaseModel):
+    """Who is logged in, so the frontend can show the right screens."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    username: str
+    role: str
+    barber_id: int | None = None
+
+
+Username = Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, min_length=3, max_length=80)]
+Password = Annotated[str, StringConstraints(min_length=10, max_length=200)]
+
+
+class AccountCreate(BaseModel):
+    """The owner creates a login for a barber."""
+
+    username: Username
+    password: Password
+    barber_id: int
+
+
+class AccountRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    role: str
+    barber_id: int | None = None
+    created_at: datetime
+
+
+class PasswordReset(BaseModel):
+    password: Password
 
 
 class WorkingHoursBlock(BaseModel):

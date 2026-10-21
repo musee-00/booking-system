@@ -9,10 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.auth import create_access_token, create_admin_user_record, require_admin, verify_password
+from app.auth import create_access_token, create_admin_user_record, get_current_user, require_owner, verify_password
 from app.core.config import settings
 from app.db.database import get_db
-from app.models import AdminUser, Appointment, Barber, Service, barber_services
+from app.models import ROLE_BARBER, AdminUser, Appointment, Barber, Service, barber_services
 from app.schedule import (
     SHOP_CLOSES,
     SHOP_OPENS,
@@ -29,6 +29,7 @@ from app.schemas import (
     AdminLoginResponse,
     AppointmentCreate,
     AppointmentRead,
+    CurrentUserRead,
     BarberCreate,
     BarberRead,
     BarberUpdate,
@@ -250,7 +251,7 @@ def list_barbers(db: Session = Depends(get_db)) -> list[Barber]:
     ).all()
 
 
-@router.post("/barbers", response_model=BarberRead, dependencies=[Depends(require_admin)])
+@router.post("/barbers", response_model=BarberRead, dependencies=[Depends(require_owner)])
 def create_barber(barber: BarberCreate, db: Session = Depends(get_db)) -> Barber:
     db_barber = Barber(
         **barber.model_dump(),
@@ -263,7 +264,7 @@ def create_barber(barber: BarberCreate, db: Session = Depends(get_db)) -> Barber
     return db_barber
 
 
-@router.patch("/barbers/{barber_id}", response_model=BarberRead, dependencies=[Depends(require_admin)])
+@router.patch("/barbers/{barber_id}", response_model=BarberRead, dependencies=[Depends(require_owner)])
 def update_barber(barber_id: int, changes: BarberUpdate, db: Session = Depends(get_db)) -> Barber:
     barber = db.get(Barber, barber_id)
     if barber is None:
@@ -282,7 +283,7 @@ def list_services(db: Session = Depends(get_db)) -> list[Service]:
     ).all()
 
 
-@router.post("/services", response_model=ServiceRead, dependencies=[Depends(require_admin)])
+@router.post("/services", response_model=ServiceRead, dependencies=[Depends(require_owner)])
 def create_service(service: ServiceCreate, db: Session = Depends(get_db)) -> Service:
     if service.barber_ids is None:
         offered_by = list(db.scalars(select(Barber).where(Barber.active.is_(True))).all())
@@ -295,7 +296,7 @@ def create_service(service: ServiceCreate, db: Session = Depends(get_db)) -> Ser
     return db_service
 
 
-@router.patch("/services/{service_id}", response_model=ServiceRead, dependencies=[Depends(require_admin)])
+@router.patch("/services/{service_id}", response_model=ServiceRead, dependencies=[Depends(require_owner)])
 def update_service(service_id: int, changes: ServiceUpdate, db: Session = Depends(get_db)) -> Service:
     service = db.get(Service, service_id)
     if service is None:
@@ -311,19 +312,25 @@ def update_service(service_id: int, changes: ServiceUpdate, db: Session = Depend
 
 # Admin lists include inactive barbers/services, so they can be managed and
 # old appointments can still show the right name.
-@router.get("/admin/barbers", response_model=list[BarberRead], dependencies=[Depends(require_admin)])
+@router.get("/admin/barbers", response_model=list[BarberRead], dependencies=[Depends(get_current_user)])
 def list_all_barbers(db: Session = Depends(get_db)) -> list[Barber]:
     return db.scalars(select(Barber).options(selectinload(Barber.services)).order_by(Barber.created_at.desc())).all()
 
 
-@router.get("/admin/services", response_model=list[ServiceRead], dependencies=[Depends(require_admin)])
+@router.get("/admin/services", response_model=list[ServiceRead], dependencies=[Depends(get_current_user)])
 def list_all_services(db: Session = Depends(get_db)) -> list[Service]:
     return db.scalars(select(Service).options(selectinload(Service.barbers)).order_by(Service.created_at.desc())).all()
 
 
-@router.get("/appointments", response_model=list[AppointmentRead], dependencies=[Depends(require_admin)])
-def list_appointments(db: Session = Depends(get_db)) -> list[Appointment]:
-    return db.scalars(select(Appointment).order_by(Appointment.starts_at.asc())).all()
+@router.get("/appointments", response_model=list[AppointmentRead])
+def list_appointments(
+    user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[Appointment]:
+    """The owner sees every booking; a barber only their own (Setmore's "Standard" level)."""
+    query = select(Appointment).order_by(Appointment.starts_at.asc())
+    if user.role == ROLE_BARBER:
+        query = query.where(Appointment.barber_id == user.barber_id)
+    return db.scalars(query).all()
 
 
 @router.get("/availability")
@@ -485,18 +492,26 @@ def admin_login(payload: AdminLoginRequest, db: Session = Depends(get_db)) -> Ad
     if admin_user is None or not verify_password(payload.password, admin_user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials.")
 
+    if admin_user.role == ROLE_BARBER and (admin_user.barber is None or not admin_user.barber.active):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This account is disabled.")
+
     token = create_access_token(admin_user.username)
-    return AdminLoginResponse(token=token)
+    return AdminLoginResponse(token=token, role=admin_user.role, barber_id=admin_user.barber_id)
 
 
-@router.patch(
-    "/appointments/{appointment_id}/cancel",
-    response_model=AppointmentRead,
-    dependencies=[Depends(require_admin)],
-)
-def cancel_appointment(appointment_id: int, db: Session = Depends(get_db)) -> Appointment:
+@router.get("/auth/me", response_model=CurrentUserRead)
+def read_current_user(user: AdminUser = Depends(get_current_user)) -> AdminUser:
+    return user
+
+
+@router.patch("/appointments/{appointment_id}/cancel", response_model=AppointmentRead)
+def cancel_appointment(
+    appointment_id: int, user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)
+) -> Appointment:
     appointment = db.get(Appointment, appointment_id)
-    if appointment is None:
+    # A barber asking for someone else's booking gets the same 404 as for a
+    # booking that doesn't exist, so they can't even learn that it exists.
+    if appointment is None or (user.role == ROLE_BARBER and appointment.barber_id != user.barber_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
 
     if appointment.status == "cancelled":
