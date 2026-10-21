@@ -1,9 +1,8 @@
 import logging
 import smtplib
-from datetime import date as date_type, datetime, time, timedelta, timezone
+from datetime import date as date_type, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from email.message import EmailMessage
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -14,6 +13,16 @@ from app.auth import create_access_token, create_admin_user_record, require_admi
 from app.core.config import settings
 from app.db.database import get_db
 from app.models import AdminUser, Appointment, Barber, Service
+from app.schedule import (
+    SHOP_CLOSES,
+    SHOP_OPENS,
+    STOCKHOLM_TZ,
+    default_working_hours,
+    get_working_blocks,
+    has_time_off,
+    is_shop_open_day,
+    is_within_working_hours,
+)
 from app.schemas import (
     AdminLoginRequest,
     AdminLoginResponse,
@@ -29,9 +38,7 @@ from app.schemas import (
 
 router = APIRouter(prefix="/api/v1")
 logger = logging.getLogger(__name__)
-STOCKHOLM_TZ = ZoneInfo("Europe/Stockholm")
-DAY_START_HOUR = 9
-DAY_END_HOUR = 18
+SLOT_STEP = timedelta(minutes=30)
 
 
 def format_price_kr(value: str | int | float | Decimal) -> str:
@@ -173,10 +180,6 @@ def ensure_stockholm_datetime(value: datetime) -> datetime:
     return value.astimezone(STOCKHOLM_TZ)
 
 
-def is_business_day(value: date_type) -> bool:
-    return value.weekday() in {1, 2, 3, 4, 5}
-
-
 OVERLAP_CONSTRAINT = "appointments_no_overlap"
 OVERLAP_DETAIL = "This barber already has an appointment overlapping the requested time."
 
@@ -232,7 +235,7 @@ def list_barbers(db: Session = Depends(get_db)) -> list[Barber]:
 
 @router.post("/barbers", response_model=BarberRead, dependencies=[Depends(require_admin)])
 def create_barber(barber: BarberCreate, db: Session = Depends(get_db)) -> Barber:
-    db_barber = Barber(**barber.model_dump())
+    db_barber = Barber(**barber.model_dump(), working_hours=default_working_hours())
     db.add(db_barber)
     commit_or_conflict(db, "A barber with this email already exists.")
     db.refresh(db_barber)
@@ -309,35 +312,31 @@ def list_availability(
     if barber is None or not barber.active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
 
-    if not is_business_day(date):
-        return []
-
     slot_duration = timedelta(minutes=service.duration_minutes)
-    day_start = datetime.combine(date, time(DAY_START_HOUR, 0), tzinfo=STOCKHOLM_TZ)
-    day_end = datetime.combine(date, time(DAY_END_HOUR, 0), tzinfo=STOCKHOLM_TZ)
     now_stockholm = datetime.now(STOCKHOLM_TZ)
-
     slots: list[dict[str, str | int]] = []
-    candidate_start = day_start
 
-    while candidate_start + slot_duration <= day_end:
-        candidate_end = candidate_start + slot_duration
-
-        if candidate_start < now_stockholm:
-            candidate_start += timedelta(minutes=30)
-            continue
-
-        if not has_overlapping_appointment(db, barber_id, candidate_start, candidate_end):
-            slots.append(
-                {
-                    "barber_id": barber.id,
-                    "barber_name": barber.name,
-                    "start": candidate_start.isoformat(),
-                    "end": candidate_end.isoformat(),
-                }
+    # Candidate start times every 30 minutes inside each working block. A slot
+    # must end before the block ends, so it never runs into a break.
+    for block_start, block_end in get_working_blocks(db, barber_id, date):
+        candidate_start = block_start
+        while candidate_start + slot_duration <= block_end:
+            candidate_end = candidate_start + slot_duration
+            is_free = (
+                candidate_start >= now_stockholm
+                and not has_overlapping_appointment(db, barber_id, candidate_start, candidate_end)
+                and not has_time_off(db, barber_id, candidate_start, candidate_end)
             )
-
-        candidate_start += timedelta(minutes=30)
+            if is_free:
+                slots.append(
+                    {
+                        "barber_id": barber.id,
+                        "barber_name": barber.name,
+                        "start": candidate_start.isoformat(),
+                        "end": candidate_end.isoformat(),
+                    }
+                )
+            candidate_start += SLOT_STEP
 
     return slots
 
@@ -364,15 +363,13 @@ def create_appointment(
             detail="Appointments cannot be scheduled in the past.",
         )
 
-    if not is_business_day(starts_at.date()):
+    if not is_shop_open_day(starts_at.date()):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Appointments are only available on Tuesday to Saturday.",
         )
 
-    day_start = datetime.combine(starts_at.date(), time(DAY_START_HOUR, 0), tzinfo=STOCKHOLM_TZ)
-    day_end = datetime.combine(starts_at.date(), time(DAY_END_HOUR, 0), tzinfo=STOCKHOLM_TZ)
-    if starts_at < day_start or ends_at > day_end:
+    if starts_at.time() < SHOP_OPENS or ends_at > datetime.combine(starts_at.date(), SHOP_CLOSES, tzinfo=STOCKHOLM_TZ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Appointments must be scheduled within business hours (09:00-18:00).",
@@ -390,6 +387,18 @@ def create_appointment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This service is no longer available.")
     if not barber.active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This barber is no longer taking bookings.")
+
+    # The barber's own schedule: inside one working block, not during time off.
+    if not is_within_working_hours(db, barber.id, starts_at, ends_at):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{barber.name} isn't working at the requested time.",
+        )
+    if has_time_off(db, barber.id, starts_at, ends_at):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{barber.name} is away at the requested time.",
+        )
 
     # Layer 1: check first, so the normal case gets a clear 409 message.
     if has_overlapping_appointment(db, appointment.barber_id, starts_at, ends_at):

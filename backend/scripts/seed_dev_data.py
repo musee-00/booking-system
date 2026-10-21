@@ -19,6 +19,7 @@ from alembic.config import Config
 from app.auth import create_admin_user_record
 from app.db.database import SessionLocal, engine
 from app.models import Appointment, Barber, Service
+from app.schedule import default_working_hours
 
 load_dotenv(ROOT / ".env")
 
@@ -47,6 +48,7 @@ def seed_data() -> None:
                 bio="Mika blends precision cuts with a relaxed Scandinavian style and a sharp eye for modern fades.",
                 photo_url="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=80",
                 color="#8B5E3C",
+                working_hours=default_working_hours(),
             ),
             Barber(
                 name="Noah Hassan",
@@ -56,6 +58,7 @@ def seed_data() -> None:
                 bio="Noah is known for clean lines, textured finishes, and easy-going consultations for every client.",
                 photo_url="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=900&q=80",
                 color="#2F6F7A",
+                working_hours=default_working_hours(),
             ),
             Barber(
                 name="Alicia Sundström",
@@ -65,6 +68,7 @@ def seed_data() -> None:
                 bio="Alicia specializes in soft styling, beard shaping, and premium finishing touches that hold their look all week.",
                 photo_url="https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=900&q=80",
                 color="#4C6F3A",
+                working_hours=default_working_hours(),
             ),
         ]
         db.add_all(barbers)
