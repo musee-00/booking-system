@@ -16,15 +16,20 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
 
 **Customers**
 - Book in a five-step wizard: service → barber → time → details → confirm. Steps that are already answered are skipped (for example when booking from a barber's profile).
-- See only real free times, based on service length, opening hours (Tue–Sat, 09:00–18:00, Stockholm time) and existing bookings.
-- Get a confirmation email with service, barber, time, price and address.
+- Only see barbers who offer the chosen service, and only real free times: inside that barber's working hours (shop open Tue–Sat 09:00–18:00, Stockholm time), not during their breaks or time off, and not overlapping existing bookings.
+- Get a confirmation screen and email with service, barber, time, price, address and a booking reference.
 
-**Barber (admin)**
-- Log in with a JWT-based admin login.
-- Use a calendar with week and day views and one colour per barber.
+**Owner** (like Setmore's "Admin" access level)
+- Calendar with week and day views and one colour per barber. Breaks, days off and time off are hatched (day view per barber; week view when nobody works). Past slots and closed days are greyed out; completed and cancelled appointments can be shown or hidden.
 - Create and cancel bookings from the calendar. A cancelled time becomes bookable again right away.
-- Past time slots, closed days (Sun/Mon) and closing time are greyed out. Completed and cancelled appointments are hidden by default, with toggles to show them.
-- Manage the team and the service menu on a **Team & services** page: add, edit, and deactivate or reactivate barbers and services. Deactivating hides them from customers but keeps booking history.
+- **Team & services** page:
+  - add, edit, deactivate or reactivate barbers and services (deactivating keeps booking history);
+  - choose which barbers offer each service ("Offered by");
+  - set each barber's weekly hours with a lunch break, and add time off (whole days or part of a day). Existing bookings that clash are listed, never cancelled automatically;
+  - create, reset or remove each barber's own login.
+
+**Barber** (like Setmore's "Standard" access level)
+- Logs in with their own account and sees and manages **only their own calendar**: their own bookings, which they can create and cancel. Services, hours, other barbers and accounts stay with the owner.
 
 ---
 
@@ -33,7 +38,7 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
 ```mermaid
 flowchart LR
     C[Customer page<br/>React] -->|public endpoints| API
-    A[Admin calendar<br/>React] -->|JWT bearer token| API
+    A[Staff calendar<br/>React: owner + barbers] -->|JWT bearer token| API
     API[FastAPI<br/>validation + auth] --> DB[(PostgreSQL<br/>exclusion constraint)]
     API -.->|background task| SMTP[SMTP<br/>confirmation email]
 ```
@@ -80,9 +85,13 @@ Cancelled bookings are excluded in both layers, so cancelling a booking frees th
 
 ## Security
 
-Admin endpoints require a **JWT** in the `Authorization: Bearer <token>` header. The token comes from `POST /api/v1/admin/login`, is signed with `JWT_SECRET` and expires after `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`. Passwords are stored as **bcrypt** hashes.
+Staff endpoints require a **JWT** in the `Authorization: Bearer <token>` header. The token comes from `POST /api/v1/admin/login`, is signed with `JWT_SECRET` and expires after `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`. Passwords are stored as **bcrypt** hashes.
 
-The check is a single FastAPI dependency, `require_admin`. It is attached to each protected route and returns `401` (with `WWW-Authenticate: Bearer`) for a token that is missing, malformed, expired or forged. In the admin UI, any `401` clears the stored token and redirects to the login page with a "session expired" message.
+**Authentication and authorization are two separate FastAPI dependencies:**
+- `get_current_user` answers *who are you?* It returns `401` (with `WWW-Authenticate: Bearer`) for a token that is missing, malformed, expired or forged, and for a barber whose account was removed or who was deactivated.
+- `require_owner` answers *may you do this?* It returns `403` for a barber calling an owner-only endpoint.
+
+The role is read from the database on every request, not from the token, so removing a login or deactivating a barber locks them out immediately. A barber who asks for a colleague's booking gets `404`, the same answer as for a booking that doesn't exist, so they can't learn that it exists. The frontend hides owner screens from barbers, but that's only presentation: the API enforces every rule, and a test calls every owner-only endpoint with a barber's token. In the staff UI, any `401` clears the stored session and redirects to the login page with a "session expired" message.
 
 | Method | Endpoint | Access | Returns |
 |---|---|---|---|
@@ -91,15 +100,17 @@ The check is a single FastAPI dependency, `require_admin`. It is attached to eac
 | GET | `/api/v1/barbers` | Public | Active barber profiles |
 | GET | `/api/v1/availability?barber_id&service_id&date` | Public | Free slots (times and barber only) |
 | POST | `/api/v1/appointments` | Public | The booking just created |
-| POST | `/api/v1/admin/login` | Public | JWT |
-| GET | `/api/v1/appointments` | **Admin** | All bookings, including customer contact details |
-| GET | `/api/v1/admin/barbers` | **Admin** | All barbers, including inactive |
-| GET | `/api/v1/admin/services` | **Admin** | All services, including inactive |
-| POST | `/api/v1/barbers` | **Admin** | Created barber |
-| POST | `/api/v1/services` | **Admin** | Created service |
-| PATCH | `/api/v1/barbers/{id}` | **Admin** | Updated barber (partial update, including `active`) |
-| PATCH | `/api/v1/services/{id}` | **Admin** | Updated service (partial update, including `active`) |
-| PATCH | `/api/v1/appointments/{id}/cancel` | **Admin** | Cancelled booking |
+| POST | `/api/v1/admin/login` | Public | JWT, role and barber id |
+| GET | `/api/v1/auth/me` | Staff | Who is logged in |
+| GET | `/api/v1/appointments` | Staff | Owner: all bookings with customer contact details. Barber: only their own |
+| PATCH | `/api/v1/appointments/{id}/cancel` | Staff | Cancelled booking (a barber only their own; otherwise `404`) |
+| GET | `/api/v1/admin/barbers`, `/api/v1/admin/services` | Staff | All barbers and services, including inactive |
+| GET | `/api/v1/barbers/schedules?start&end` | Staff | Hours and time off for the calendar (a barber only their own) |
+| POST, PATCH | `/api/v1/barbers`, `/api/v1/barbers/{id}` | **Owner** | Created or updated barber (partial update, including `active`) |
+| POST, PATCH | `/api/v1/services`, `/api/v1/services/{id}` | **Owner** | Created or updated service, including who offers it (`barber_ids`) |
+| GET, PUT | `/api/v1/barbers/{id}/working-hours` | **Owner** | Weekly hours; `PUT` replaces them and lists bookings now outside them |
+| GET, POST, DELETE | `/api/v1/barbers/{id}/time-off` | **Owner** | Time off; `POST` lists bookings inside the new period |
+| GET, POST, PUT, DELETE | `/api/v1/accounts` | **Owner** | Barber logins: list, create, reset password, remove |
 
 No public endpoint returns another customer's personal data, and a test checks this.
 
@@ -204,7 +215,7 @@ The API and PostgreSQL run on **Render** (defined in [`render.yaml`](render.yaml
 ## Known limitations and next steps
 
 - **Not built yet:**
-  - booking cancellation email
-  - appointment status filter
-  - frontend tests for the booking wizard
   - confirmation emails in production through an HTTP email API (free Render instances block SMTP)
+  - a link in the email for customers to cancel or move their own booking
+  - a reminder email the day before
+  - automated frontend tests in the repository (the flows were verified with headless-browser scripts during development)
