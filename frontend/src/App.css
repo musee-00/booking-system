@@ -1831,7 +1831,8 @@ button {
   color: #f5efe7;
 }
 
-.admin-schedule__break {
+.admin-schedule__label {
+  min-width: 46px;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;

@@ -22,21 +22,58 @@ const TIME_OPTIONS = Array.from({ length: 19 }, (_, index) => {
 
 const toHHMM = (value) => value.slice(0, 5) // "09:00:00" -> "09:00"
 
-// API list -> { weekday: [{ start, end }, ...] } for the five shop days.
+// The editor works with how a barber thinks about a day: "I work 09-18 with a
+// break 13-14". The API stores working blocks instead (09-13 and 14-18), so we
+// convert in both directions.
+const DAY_OFF = { works: false, start: OPENS, end: CLOSES, hasBreak: false, breakStart: '12:00', breakEnd: '13:00' }
+
+// API blocks -> { weekday: { works, start, end, hasBreak, breakStart, breakEnd } }
 const toWeek = (blocks) => Object.fromEntries(
-  SHOP_DAYS.map(({ weekday }) => [
-    weekday,
-    blocks
+  SHOP_DAYS.map(({ weekday }) => {
+    const day = blocks
       .filter((block) => block.weekday === weekday)
       .map((block) => ({ start: toHHMM(block.start_time), end: toHHMM(block.end_time) }))
-      .sort((a, b) => a.start.localeCompare(b.start)),
-  ]),
+      .sort((a, b) => a.start.localeCompare(b.start))
+    if (day.length === 0) return [weekday, { ...DAY_OFF }]
+
+    const first = day[0]
+    const last = day[day.length - 1]
+    return [weekday, {
+      works: true,
+      start: first.start,
+      end: last.end,
+      // The editor supports one break per day: the gap between the first two blocks.
+      hasBreak: day.length > 1,
+      breakStart: day.length > 1 ? first.end : DAY_OFF.breakStart,
+      breakEnd: day.length > 1 ? day[1].start : DAY_OFF.breakEnd,
+    }]
+  }),
 )
 
-// { weekday: [...] } -> the flat list the API expects.
-const toBlocks = (week) => SHOP_DAYS.flatMap(({ weekday }) => (
-  week[weekday].map((block) => ({ weekday, start_time: block.start, end_time: block.end }))
-))
+// { weekday: day } -> the flat list of working blocks the API expects.
+const toBlocks = (week) => SHOP_DAYS.flatMap(({ weekday }) => {
+  const day = week[weekday]
+  if (!day.works) return []
+  if (!day.hasBreak) return [{ weekday, start_time: day.start, end_time: day.end }]
+  return [
+    { weekday, start_time: day.start, end_time: day.breakStart },
+    { weekday, start_time: day.breakEnd, end_time: day.end },
+  ]
+})
+
+// Check before sending, with messages in the editor's own terms (the API would
+// only know about blocks).
+const findDayProblems = (week) => SHOP_DAYS.flatMap(({ weekday, label }) => {
+  const day = week[weekday]
+  if (!day.works) return []
+  if (day.end <= day.start) return [`${label}: the working day must end after it starts.`]
+  if (!day.hasBreak) return []
+  if (day.breakEnd <= day.breakStart) return [`${label}: the break must end after it starts.`]
+  if (day.breakStart <= day.start || day.breakEnd >= day.end) {
+    return [`${label}: the break (${day.breakStart}–${day.breakEnd}) must be inside the working day (${day.start}–${day.end}).`]
+  }
+  return []
+})
 
 const formatDateTime = (value) => new Date(value).toLocaleString(undefined, {
   weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
@@ -108,37 +145,39 @@ export function BarberSchedule({ barber, adminFetch, onClose }) {
 
   // ---- Weekly hours -----------------------------------------------------------
 
-  const updateDay = (weekday, blocks) => {
-    setWeek((current) => ({ ...current, [weekday]: blocks }))
+  const updateDay = (weekday, changes) => {
+    setWeek((current) => ({ ...current, [weekday]: { ...current[weekday], ...changes } }))
     setHoursMessage({ type: '', text: '' })
   }
 
-  const toggleDay = (weekday) => {
-    updateDay(weekday, week[weekday].length ? [] : [{ start: OPENS, end: CLOSES }])
-  }
+  const toggleDay = (weekday) => updateDay(weekday, { works: !week[weekday].works })
 
-  const updateBlock = (weekday, index, field, value) => {
-    updateDay(weekday, week[weekday].map((block, i) => (i === index ? { ...block, [field]: value } : block)))
-  }
-
-  // A lunch break = two blocks. Default to 12:00-13:00, adjustable afterwards.
+  // Default break 12:00-13:00 when it fits, otherwise the middle hour of the day.
   const addBreak = (weekday) => {
-    const [block] = week[weekday]
-    const breakStart = block.start < '12:00' && block.end > '13:00' ? '12:00' : TIME_OPTIONS[TIME_OPTIONS.indexOf(block.start) + 2]
-    const breakEnd = TIME_OPTIONS[TIME_OPTIONS.indexOf(breakStart) + 2]
-    if (!breakStart || !breakEnd || breakEnd >= block.end) {
+    const day = week[weekday]
+    if (day.start < '12:00' && day.end > '13:00') {
+      updateDay(weekday, { hasBreak: true, breakStart: '12:00', breakEnd: '13:00' })
+      return
+    }
+    const startIndex = TIME_OPTIONS.indexOf(day.start)
+    const endIndex = TIME_OPTIONS.indexOf(day.end)
+    if (endIndex - startIndex < 4) {
       setHoursMessage({ type: 'error', text: 'This day is too short to add a break.' })
       return
     }
-    updateDay(weekday, [{ start: block.start, end: breakStart }, { start: breakEnd, end: block.end }])
+    const middle = Math.floor((startIndex + endIndex) / 2) - 1
+    updateDay(weekday, { hasBreak: true, breakStart: TIME_OPTIONS[middle], breakEnd: TIME_OPTIONS[middle + 2] })
   }
 
-  const removeBreak = (weekday) => {
-    const blocks = week[weekday]
-    updateDay(weekday, [{ start: blocks[0].start, end: blocks[blocks.length - 1].end }])
-  }
+  const removeBreak = (weekday) => updateDay(weekday, { hasBreak: false })
 
   const saveHours = async () => {
+    const problems = findDayProblems(week)
+    if (problems.length) {
+      setHoursMessage({ type: 'error', text: problems.join(' ') })
+      return
+    }
+
     setIsSavingHours(true)
     setHoursMessage({ type: '', text: '' })
     try {
@@ -237,32 +276,38 @@ export function BarberSchedule({ barber, adminFetch, onClose }) {
       {week && (
         <>
           <h4>Weekly hours</h4>
-          <p className="admin-schedule__hint">The shop is open Tue–Sat 09:00–18:00. Untick a day the barber doesn't work.</p>
+          <p className="admin-schedule__hint">The shop is open Tue–Sat 09:00–18:00. Set when the barber works and, if they take one, when their break is. Customers can't book during a break. Untick a day the barber doesn't work.</p>
 
           <div className="admin-schedule__days">
             {SHOP_DAYS.map(({ weekday, label }) => {
-              const blocks = week[weekday]
-              const works = blocks.length > 0
+              const day = week[weekday]
               return (
-                <div key={weekday} className={`admin-schedule__day ${works ? '' : 'is-off'}`}>
+                <div key={weekday} className={`admin-schedule__day ${day.works ? '' : 'is-off'}`}>
                   <label className="admin-schedule__check">
-                    <input type="checkbox" checked={works} onChange={() => toggleDay(weekday)} />
+                    <input type="checkbox" checked={day.works} onChange={() => toggleDay(weekday)} />
                     {label}
                   </label>
 
-                  {works ? (
+                  {day.works ? (
                     <div className="admin-schedule__blocks">
-                      {blocks.map((block, index) => (
-                        <span key={index} className="admin-schedule__block">
-                          {index > 0 && <span className="admin-schedule__break">break</span>}
-                          {timeSelect(block.start, (value) => updateBlock(weekday, index, 'start', value), `${label} start ${index + 1}`)}
+                      <span className="admin-schedule__block">
+                        <span className="admin-schedule__label">Works</span>
+                        {timeSelect(day.start, (value) => updateDay(weekday, { start: value }), `${label} starts`)}
+                        –
+                        {timeSelect(day.end, (value) => updateDay(weekday, { end: value }), `${label} ends`)}
+                      </span>
+
+                      {day.hasBreak ? (
+                        <span className="admin-schedule__block">
+                          <span className="admin-schedule__label">Break</span>
+                          {timeSelect(day.breakStart, (value) => updateDay(weekday, { breakStart: value }), `${label} break starts`)}
                           –
-                          {timeSelect(block.end, (value) => updateBlock(weekday, index, 'end', value), `${label} end ${index + 1}`)}
+                          {timeSelect(day.breakEnd, (value) => updateDay(weekday, { breakEnd: value }), `${label} break ends`)}
+                          <button type="button" className="admin-link-button" onClick={() => removeBreak(weekday)}>Remove break</button>
                         </span>
-                      ))}
-                      {blocks.length === 1
-                        ? <button type="button" className="admin-link-button" onClick={() => addBreak(weekday)}>+ Add break</button>
-                        : <button type="button" className="admin-link-button" onClick={() => removeBreak(weekday)}>Remove break</button>}
+                      ) : (
+                        <button type="button" className="admin-link-button" onClick={() => addBreak(weekday)}>+ Add break</button>
+                      )}
                     </div>
                   ) : (
                     <span className="admin-schedule__hint">Day off</span>
