@@ -286,8 +286,11 @@ export function AdminAppointmentsPage() {
     setSelectedSlot(null)
   }
 
+  // Active services the barber offers (each service is assigned to barbers).
+  const servicesOfferedBy = (barberId) => activeServices.filter((service) => service.barber_ids.includes(Number(barberId)))
+
   const openSlotPanel = (barberId, slotStart) => {
-    const serviceId = activeServices[0]?.id || ''
+    const serviceId = servicesOfferedBy(barberId)[0]?.id || ''
     setSelectedSlot({ barberId, slotStart: new Date(slotStart) })
     setBookingFormError('')
     setSelectedAppointment(null)
@@ -781,7 +784,7 @@ export function AdminAppointmentsPage() {
                           value={newBookingForm.service_id}
                           onChange={(event) => setNewBookingForm({ ...newBookingForm, service_id: event.target.value })}
                         >
-                          {activeServices.map((service) => (
+                          {servicesOfferedBy(newBookingForm.barber_id).map((service) => (
                             <option key={service.id} value={service.id}>{service.name}</option>
                           ))}
                         </select>
@@ -791,7 +794,17 @@ export function AdminAppointmentsPage() {
                         Barber
                         <select
                           value={newBookingForm.barber_id}
-                          onChange={(event) => setNewBookingForm({ ...newBookingForm, barber_id: event.target.value })}
+                          onChange={(event) => {
+                            // Switching barber: keep the service only if the new barber offers it.
+                            const barberId = event.target.value
+                            const offered = servicesOfferedBy(barberId)
+                            const keepService = offered.some((service) => String(service.id) === String(newBookingForm.service_id))
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              barber_id: barberId,
+                              service_id: keepService ? newBookingForm.service_id : String(offered[0]?.id || ''),
+                            })
+                          }}
                         >
                           {activeBarbers
                             .filter((barber) => getBarberStatus(barber.id, selectedSlot.slotStart).working)

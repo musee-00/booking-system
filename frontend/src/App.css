@@ -1902,3 +1902,29 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* "Offered by" checkboxes in the service form */
+.admin-offered-by {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.admin-offered-by legend {
+  padding: 0 6px;
+  color: #efe3ca;
+  font-weight: 600;
+}
+
+.admin-offered-by .admin-schedule__check input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+.admin-offered-by small {
+  flex-basis: 100%;
+}

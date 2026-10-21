@@ -201,13 +201,23 @@ export function CustomerPage() {
     [barbers, selectedBarberId],
   )
 
-  const servicesWithImages = useMemo(
-    () => services.map((service, index) => ({
-      ...service,
-      image: SERVICE_IMAGES[index % SERVICE_IMAGES.length],
-    })),
-    [services],
-  )
+  // Only list services that at least one (active) barber offers; `barbers`
+  // from the public API only contains active barbers.
+  const servicesWithImages = useMemo(() => {
+    const barberIds = new Set(barbers.map((barber) => barber.id))
+    return services
+      .filter((service) => service.barber_ids.some((id) => barberIds.has(id)))
+      .map((service, index) => ({ ...service, image: SERVICE_IMAGES[index % SERVICE_IMAGES.length] }))
+  }, [services, barbers])
+
+  // In the wizard: after choosing a service, show only barbers who offer it;
+  // after choosing a barber first (from their profile), only their services.
+  const wizardBarbers = selectedService
+    ? barbers.filter((barber) => barber.service_ids.includes(selectedService.id))
+    : barbers
+  const wizardServices = selectedBarber
+    ? servicesWithImages.filter((service) => selectedBarber.service_ids.includes(service.id))
+    : servicesWithImages
 
   const availabilityKey = selectedService && selectedBarberId
     ? `${selectedBarberId}:${selectedService.id}:${availabilityRetry}`
@@ -359,7 +369,10 @@ export function CustomerPage() {
   const handleServiceSelect = (serviceId) => {
     setSelectedServiceId(String(serviceId))
     setSelectedSlot(null)
-    setCurrentStep(selectedBarberId ? STEP.TIME : STEP.BARBER)
+    // Keep the chosen barber only if they offer the new service.
+    const keepBarber = selectedBarber?.service_ids.includes(Number(serviceId))
+    if (!keepBarber) setSelectedBarberId('')
+    setCurrentStep(keepBarber ? STEP.TIME : STEP.BARBER)
   }
 
   const handleBarberSelect = (barberId) => {
@@ -647,9 +660,11 @@ export function CustomerPage() {
             <div className="barber-profile-services">
               <strong>Services</strong>
               <ul>
-                {services.map((service) => (
-                  <li key={service.id}>{service.name}</li>
-                ))}
+                {servicesWithImages
+                  .filter((service) => selectedBarberProfile.service_ids.includes(service.id))
+                  .map((service) => (
+                    <li key={service.id}>{service.name}</li>
+                  ))}
               </ul>
             </div>
 
@@ -741,7 +756,7 @@ export function CustomerPage() {
                     </div>
 
                     <div className="service-list">
-                      {servicesWithImages.map((service) => (
+                      {wizardServices.map((service) => (
                         <button
                           key={service.id}
                           type="button"
@@ -773,7 +788,7 @@ export function CustomerPage() {
                     </div>
 
                     <div className="modal-barber-grid">
-                      {barbers.map((barber) => (
+                      {wizardBarbers.map((barber) => (
                         <button
                           key={barber.id}
                           type="button"

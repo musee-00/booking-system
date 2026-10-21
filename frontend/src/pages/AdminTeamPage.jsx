@@ -25,12 +25,14 @@ const FORMS = {
   service: {
     path: '/services',
     label: 'service',
-    empty: { name: '', duration_minutes: '30', price: '', description: '' },
+    empty: { name: '', duration_minutes: '30', price: '', description: '', barber_ids: [] },
     fields: [
       { name: 'name', label: 'Name', required: true, maxLength: 150 },
       { name: 'duration_minutes', label: 'Duration (minutes)', type: 'number', required: true, min: 5, max: 480, step: 5 },
       { name: 'price', label: 'Price (kr)', type: 'number', required: true, min: 0, step: 1 },
       { name: 'description', label: 'Description', textarea: true },
+      // Like Setmore: each service is assigned to the barbers who provide it.
+      { name: 'barber_ids', label: 'Offered by', type: 'barbers' },
     ],
   },
 }
@@ -54,9 +56,14 @@ const toPayload = (kind, values) => {
   return payload
 }
 
-// Turn an API record into form values (null -> '' so inputs stay controlled).
+// Turn an API record into form values (null -> '' so inputs stay controlled;
+// lists such as barber_ids stay lists).
 const toFormValues = (kind, record) => Object.fromEntries(
-  Object.keys(FORMS[kind].empty).map((key) => [key, record[key] == null ? '' : String(record[key])]),
+  Object.keys(FORMS[kind].empty).map((key) => {
+    const value = record[key]
+    if (Array.isArray(value)) return [key, [...value]]
+    return [key, value == null ? '' : String(value)]
+  }),
 )
 
 export function AdminTeamPage() {
@@ -123,7 +130,10 @@ export function AdminTeamPage() {
 
   const startAdd = (kind) => {
     setScheduleBarber(null)
-    setEditing({ kind, id: null, values: { ...FORMS[kind].empty } })
+    const values = { ...FORMS[kind].empty }
+    // A new service is offered by every active barber; untick the ones who don't.
+    if (kind === 'service') values.barber_ids = barbers.filter((barber) => barber.active).map((barber) => barber.id)
+    setEditing({ kind, id: null, values })
     setFormError('')
     setMessage({ type: '', text: '' })
   }
@@ -209,7 +219,32 @@ export function AdminTeamPage() {
       <form onSubmit={handleSave} className="admin-booking-form admin-manage-form">
         <h3>{editing.id === null ? `Add ${form.label}` : `Edit ${editing.values.name || form.label}`}</h3>
 
-        {form.fields.map((field) => (
+        {form.fields.map((field) => field.type === 'barbers' ? (
+          <fieldset key={field.name} className="admin-manage-form__wide admin-offered-by">
+            <legend>{field.label}</legend>
+            {barbers
+              // Inactive barbers only appear if they're already assigned, so they can be unticked.
+              .filter((barber) => barber.active || editing.values.barber_ids.includes(barber.id))
+              .map((barber) => (
+                <label key={barber.id} className="admin-schedule__check">
+                  <input
+                    type="checkbox"
+                    checked={editing.values.barber_ids.includes(barber.id)}
+                    onChange={(event) => updateValue(
+                      field.name,
+                      event.target.checked
+                        ? [...editing.values.barber_ids, barber.id]
+                        : editing.values.barber_ids.filter((id) => id !== barber.id),
+                    )}
+                  />
+                  {barber.name}{!barber.active && ' (inactive)'}
+                </label>
+              ))}
+            {editing.values.barber_ids.length === 0 && (
+              <small className="admin-schedule__hint">Nobody is ticked: customers can't book this service.</small>
+            )}
+          </fieldset>
+        ) : (
           <label key={field.name} className={field.textarea ? 'admin-manage-form__wide' : undefined}>
             {field.label}{field.required && ' *'}
             {field.textarea ? (
@@ -333,11 +368,13 @@ export function AdminTeamPage() {
             {renderForm('service')}
 
             <ul className="admin-manage-list">
-              {services.map((service) => renderRow(
-                'service',
-                service,
-                `${service.duration_minutes} min · ${formatPrice(service.price)}`,
-              ))}
+              {services.map((service) => {
+                const offeredBy = barbers
+                  .filter((barber) => barber.active && service.barber_ids.includes(barber.id))
+                  .map((barber) => barber.name.split(' ')[0])
+                const who = offeredBy.length ? `by ${offeredBy.join(', ')}` : 'not offered by any active barber'
+                return renderRow('service', service, `${service.duration_minutes} min · ${formatPrice(service.price)} · ${who}`)
+              })}
             </ul>
           </section>
         </main>
