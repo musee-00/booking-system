@@ -339,6 +339,9 @@ def make_protected_request(endpoint: str, headers: dict[str, str], admin_headers
         return client.get("/api/v1/admin/barbers", headers=headers)
     if endpoint == "list all services":
         return client.get("/api/v1/admin/services", headers=headers)
+    if endpoint == "list schedules":
+        day = future_business_day()
+        return client.get(f"/api/v1/barbers/schedules?start={day}&end={day}", headers=headers)
     if endpoint in ("get working hours", "replace working hours", "list time off", "create time off", "delete time off"):
         barber = create_barber(admin_headers)
         base = f"/api/v1/barbers/{barber['id']}"
@@ -378,6 +381,7 @@ PROTECTED_ENDPOINTS = [
     "update service",
     "list all barbers",
     "list all services",
+    "list schedules",
     "get working hours",
     "replace working hours",
     "list time off",

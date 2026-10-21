@@ -11,6 +11,10 @@ const OPEN_WEEKDAYS = [2, 3, 4, 5, 6]
 
 const isClosedDay = (dateValue) => !OPEN_WEEKDAYS.includes(new Date(dateValue).getDay())
 
+// The API numbers weekdays like Python (Monday = 0); JavaScript's getDay() has Sunday = 0.
+const toApiWeekday = (date) => (date.getDay() + 6) % 7
+const timeToMinutes = (value) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5)) // "13:30:00" -> 810
+
 const formatDateLong = (dateValue) =>
   new Date(`${dateValue}T12:00:00`).toLocaleDateString(undefined, {
     weekday: 'long',
@@ -106,6 +110,8 @@ export function AdminAppointmentsPage() {
   const [showCancelled, setShowCancelled] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
   const [now, setNow] = useState(() => new Date())
+  // { barberId: { working_hours, time_off } } for the visible week; null until loaded.
+  const [schedules, setSchedules] = useState(null)
   const [viewMode, setViewMode] = useState('week')
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [selectedAppointment, setSelectedAppointment] = useState(null)
@@ -326,6 +332,50 @@ export function AdminAppointmentsPage() {
     }
   }, [adminFetch])
 
+  // Each barber's hours and time off for the visible week (reloaded when the week changes).
+  const weekStartKey = weekDates[0].key
+  const weekEndKey = weekDates[weekDates.length - 1].key
+  useEffect(() => {
+    let ignore = false
+    adminFetch(`/barbers/schedules?start=${weekStartKey}&end=${weekEndKey}`)
+      .then(({ response, data }) => {
+        if (!ignore && response.ok) setSchedules(Object.fromEntries(data.map((item) => [item.barber_id, item])))
+      })
+      .catch(() => {
+        if (!ignore) setAdminMessage({ type: 'error', text: NETWORK_ERROR })
+      })
+    return () => {
+      ignore = true
+    }
+  }, [adminFetch, weekStartKey, weekEndKey])
+
+  // Is the barber working during the half-hour cell starting at slotStart?
+  // Returns { working: true } or { working: false, reason } for the cell's tooltip.
+  const getBarberStatus = (barberId, slotStart) => {
+    const schedule = schedules?.[barberId]
+    if (!schedule) return { working: true } // not loaded yet: don't grey anything out
+
+    const slotEnd = new Date(slotStart.getTime() + SLOT_MINUTES * 60000)
+    const away = schedule.time_off.find(
+      (item) => new Date(item.starts_at) < slotEnd && new Date(item.ends_at) > slotStart,
+    )
+    if (away) return { working: false, reason: away.reason ? `Time off: ${away.reason}` : 'Time off' }
+
+    const blocks = schedule.working_hours.filter((block) => block.weekday === toApiWeekday(slotStart))
+    if (!blocks.length) return { working: false, reason: 'Day off' }
+
+    const startMinutes = slotStart.getHours() * 60 + slotStart.getMinutes()
+    const endMinutes = startMinutes + SLOT_MINUTES
+    const fits = blocks.some(
+      (block) => timeToMinutes(block.start_time) <= startMinutes && endMinutes <= timeToMinutes(block.end_time),
+    )
+    if (fits) return { working: true }
+
+    const dayStart = Math.min(...blocks.map((block) => timeToMinutes(block.start_time)))
+    const dayEnd = Math.max(...blocks.map((block) => timeToMinutes(block.end_time)))
+    return { working: false, reason: startMinutes >= dayStart && endMinutes <= dayEnd ? 'Break' : 'Not working' }
+  }
+
   // Refresh after creating or cancelling a booking.
   const reloadAppointments = async () => {
     try {
@@ -510,8 +560,15 @@ export function AdminAppointmentsPage() {
                   <div className="admin-calendar-header-cell admin-calendar-header-cell--blank" aria-hidden="true" />
                   {(viewMode === 'week' ? weekDates : calendarColumns).map((headerColumn) => (
                     <div key={`header-${headerColumn.id || headerColumn.key}`} className="admin-calendar-header-cell">
-                      <span>{headerColumn.label || headerColumn.day || 'Day'}</span>
-                      <strong>{headerColumn.day || headerColumn.label?.split(' ')[1] || '1'}</strong>
+                      {viewMode === 'week' ? (
+                        <>
+                          <span>{headerColumn.label}</span>
+                          <strong>{headerColumn.day}</strong>
+                        </>
+                      ) : (
+                        // Day view: one column per barber, so the header is just the name.
+                        <strong>{headerColumn.label}</strong>
+                      )}
                       {viewMode === 'week' && isClosedDay(headerColumn.date) && <small className="admin-closed-label">Closed</small>}
                     </div>
                   ))}
@@ -605,7 +662,24 @@ export function AdminAppointmentsPage() {
                                 return <div key={`${column.id}-slot-${marker.id}`} className="admin-empty-slot is-unavailable" aria-hidden="true" />
                               }
 
-                              const barberId = viewMode === 'day' ? column.barberId : activeBarbers[0]?.id || ''
+                              // Day view: this column's barber must be working. Week view: at
+                              // least one barber must be, and the booking defaults to them.
+                              const workingBarbers = viewMode === 'day'
+                                ? [column.barberId].filter((id) => getBarberStatus(id, slotStart).working)
+                                : activeBarbers.filter((barber) => getBarberStatus(barber.id, slotStart).working).map((barber) => barber.id)
+                              if (!workingBarbers.length) {
+                                const reason = viewMode === 'day' ? getBarberStatus(column.barberId, slotStart).reason : 'No barber working'
+                                return (
+                                  <div
+                                    key={`${column.id}-slot-${marker.id}`}
+                                    className="admin-empty-slot is-barber-off"
+                                    title={`${marker.label} · ${reason}`}
+                                    aria-label={`${marker.label}: ${reason}`}
+                                  />
+                                )
+                              }
+
+                              const barberId = workingBarbers[0]
                               return (
                                 <button
                                   key={`${column.id}-slot-${marker.id}`}
@@ -719,9 +793,11 @@ export function AdminAppointmentsPage() {
                           value={newBookingForm.barber_id}
                           onChange={(event) => setNewBookingForm({ ...newBookingForm, barber_id: event.target.value })}
                         >
-                          {activeBarbers.map((barber) => (
-                            <option key={barber.id} value={barber.id}>{barber.name}</option>
-                          ))}
+                          {activeBarbers
+                            .filter((barber) => getBarberStatus(barber.id, selectedSlot.slotStart).working)
+                            .map((barber) => (
+                              <option key={barber.id} value={barber.id}>{barber.name}</option>
+                            ))}
                         </select>
                       </label>
 

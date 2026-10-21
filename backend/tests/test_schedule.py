@@ -1,6 +1,6 @@
 """Barber working hours and time off: availability and booking follow each barber's schedule."""
 
-from datetime import time
+from datetime import date, time, timedelta
 
 import pytest
 from sqlalchemy import delete, select
@@ -379,3 +379,31 @@ def test_cancelled_bookings_are_not_reported(admin_headers) -> None:
     response = client.put(hours_url(barber["id"]), json=[], headers=admin_headers)
 
     assert response.json()["conflicting_appointments"] == []
+
+
+def test_schedules_endpoint_returns_hours_and_time_off_in_range(admin_headers) -> None:
+    barber = create_barber(admin_headers)
+    day = future_business_day()
+    inside = client.post(
+        time_off_url(barber["id"]), json={"starts_at": at(day, "14:00"), "ends_at": at(day, "16:00"), "reason": "Course"},
+        headers=admin_headers,
+    ).json()["time_off"]
+    later = future_business_day(days_ahead=30)
+    client.post(time_off_url(barber["id"]), json={"starts_at": at(later, "09:00"), "ends_at": at(later, "10:00")}, headers=admin_headers)
+
+    response = client.get(f"/api/v1/barbers/schedules?start={day}&end={day}", headers=admin_headers)
+
+    assert response.status_code == 200, response.text
+    mine = next(item for item in response.json() if item["barber_id"] == barber["id"])
+    assert len(mine["working_hours"]) == 5
+    assert [t["id"] for t in mine["time_off"]] == [inside["id"]]  # the later one is outside the range
+
+
+@pytest.mark.parametrize(("start_offset", "end_offset"), [(5, 2), (0, 70)])
+def test_schedules_endpoint_rejects_bad_ranges(start_offset, end_offset, admin_headers) -> None:
+    start = date.today() + timedelta(days=start_offset)
+    end = date.today() + timedelta(days=end_offset)
+
+    response = client.get(f"/api/v1/barbers/schedules?start={start}&end={end}", headers=admin_headers)
+
+    assert response.status_code == 422, response.text

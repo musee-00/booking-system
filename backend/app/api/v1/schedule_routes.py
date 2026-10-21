@@ -1,6 +1,6 @@
 """Admin endpoints for barbers' weekly working hours and time off."""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import delete, select
@@ -10,13 +10,21 @@ from app.auth import require_admin
 from app.db.database import get_db
 from app.models import Appointment, Barber, BarberTimeOff, BarberWorkingHours
 from app.schedule import STOCKHOLM_TZ, ensure_stockholm_datetime, is_within_working_hours, validate_working_hours
-from app.schemas import TimeOffCreate, TimeOffCreated, TimeOffRead, WorkingHoursBlock, WorkingHoursSaved
+from app.schemas import (
+    BarberScheduleRead,
+    TimeOffCreate,
+    TimeOffCreated,
+    TimeOffRead,
+    WorkingHoursBlock,
+    WorkingHoursSaved,
+)
 
 # Every route in this file is admin-only: the dependency is set once on the
 # router, so a new endpoint added here can't accidentally be public.
 router = APIRouter(prefix="/api/v1/barbers", tags=["schedules"], dependencies=[Depends(require_admin)])
 
 MAX_TIME_OFF = timedelta(days=366)
+MAX_SCHEDULE_RANGE = timedelta(days=62)
 
 
 def get_barber_or_404(db: Session, barber_id: int) -> Barber:
@@ -24,6 +32,41 @@ def get_barber_or_404(db: Session, barber_id: int) -> Barber:
     if barber is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found.")
     return barber
+
+
+@router.get("/schedules", response_model=list[BarberScheduleRead])
+def list_schedules(
+    start: date = Query(..., description="First day, e.g. 2026-10-19"),
+    end: date = Query(..., description="Last day (inclusive)"),
+    db: Session = Depends(get_db),
+) -> list[BarberScheduleRead]:
+    """Every barber's weekly hours and their time off between start and end.
+
+    One request for the admin calendar instead of two per barber.
+    """
+    if end < start:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="end must not be before start.")
+    if end - start > MAX_SCHEDULE_RANGE:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The range can be at most 62 days.")
+
+    range_start = datetime.combine(start, time(0), tzinfo=STOCKHOLM_TZ)
+    range_end = datetime.combine(end + timedelta(days=1), time(0), tzinfo=STOCKHOLM_TZ)
+
+    barbers = db.scalars(select(Barber).order_by(Barber.id)).all()
+    time_off = db.scalars(
+        select(BarberTimeOff)
+        .where(BarberTimeOff.starts_at < range_end, BarberTimeOff.ends_at > range_start)
+        .order_by(BarberTimeOff.starts_at)
+    ).all()
+
+    return [
+        BarberScheduleRead(
+            barber_id=barber.id,
+            working_hours=barber.working_hours,
+            time_off=[item for item in time_off if item.barber_id == barber.id],
+        )
+        for barber in barbers
+    ]
 
 
 @router.get("/{barber_id}/working-hours", response_model=list[WorkingHoursBlock])

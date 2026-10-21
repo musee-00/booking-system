@@ -1406,6 +1406,18 @@ button {
   background: rgba(217, 181, 127, 0.08);
 }
 
+/* The barber isn't working: break, day off or time off (reason in the tooltip). */
+.admin-empty-slot.is-barber-off {
+  cursor: help;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(15, 23, 42, 0.6),
+    rgba(15, 23, 42, 0.6) 6px,
+    rgba(148, 163, 184, 0.22) 6px,
+    rgba(148, 163, 184, 0.22) 12px
+  );
+}
+
 .admin-empty-slot.is-unavailable {
   cursor: default;
   background: rgba(15, 23, 42, 0.35);

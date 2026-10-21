@@ -165,3 +165,11 @@ class WorkingHoursSaved(BaseModel):
     # Upcoming bookings that now fall outside the barber's hours. They are kept;
     # the admin decides whether to contact the customers.
     conflicting_appointments: list[ConflictingAppointment]
+
+
+class BarberScheduleRead(BaseModel):
+    """A barber's weekly hours plus the time off within a requested date range."""
+
+    barber_id: int
+    working_hours: list[WorkingHoursBlock]
+    time_off: list[TimeOffRead]
