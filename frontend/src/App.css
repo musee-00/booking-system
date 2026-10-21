@@ -1742,3 +1742,150 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* Barber hours & time off editor */
+.admin-schedule {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid rgba(217, 181, 127, 0.35);
+  border-radius: 16px;
+}
+
+.admin-schedule__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-schedule h3,
+.admin-schedule h4 {
+  margin: 0;
+}
+
+.admin-schedule h4 {
+  margin-top: 8px;
+  color: #efe3ca;
+}
+
+.admin-schedule__hint {
+  margin: 0;
+  color: #a8a29e;
+  font-size: 0.85rem;
+}
+
+.admin-schedule__days {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-schedule__day {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-schedule__day.is-off {
+  opacity: 0.6;
+}
+
+.admin-schedule__check {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #efe3ca;
+}
+
+/* The form styles make inputs full-width; a checkbox must keep its own size. */
+.admin-schedule__check input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+.admin-schedule__blocks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-schedule__block {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #a8a29e;
+}
+
+.admin-schedule select {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 6px 8px;
+  color: #f5efe7;
+}
+
+.admin-schedule__break {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #d9b57f;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.admin-schedule__timeoff {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-schedule__timeoff li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-schedule__timeoff small {
+  color: #a8a29e;
+}
+
+.admin-schedule__form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-schedule__wide {
+  grid-column: 1 / -1;
+}
+
+.admin-schedule .admin-status-message ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+@media (max-width: 900px) {
+  .admin-schedule__day,
+  .admin-schedule__form {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ADMIN_TOKEN_KEY, NETWORK_ERROR, getErrorMessage, useAdminFetch } from '../api.js'
+import { BarberSchedule } from '../components/BarberSchedule.jsx'
 
 const DEFAULT_BARBER_COLOR = '#d9b57f'
 
@@ -69,6 +70,8 @@ export function AdminTeamPage() {
   const [editing, setEditing] = useState(null)
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  // The barber whose working hours / time off are open, if any.
+  const [scheduleBarber, setScheduleBarber] = useState(null)
 
   // Fetch both lists. Returns null after a 401 (useAdminFetch already redirects).
   const fetchLists = useCallback(async () => {
@@ -112,13 +115,21 @@ export function AdminTeamPage() {
     }
   }
 
+  const openSchedule = (barber) => {
+    setEditing(null)
+    setMessage({ type: '', text: '' })
+    setScheduleBarber(barber)
+  }
+
   const startAdd = (kind) => {
+    setScheduleBarber(null)
     setEditing({ kind, id: null, values: { ...FORMS[kind].empty } })
     setFormError('')
     setMessage({ type: '', text: '' })
   }
 
   const startEdit = (kind, record) => {
+    setScheduleBarber(null)
     setEditing({ kind, id: record.id, values: toFormValues(kind, record) })
     setFormError('')
     setMessage({ type: '', text: '' })
@@ -246,6 +257,9 @@ export function AdminTeamPage() {
       </div>
       <span className={`admin-chip ${record.active ? '' : 'admin-chip--muted'}`}>{record.active ? 'Active' : 'Inactive'}</span>
       <div className="admin-manage-row__actions">
+        {kind === 'barber' && (
+          <button type="button" className="admin-secondary-button" onClick={() => openSchedule(record)}>Hours &amp; time off</button>
+        )}
         <button type="button" className="admin-secondary-button" onClick={() => startEdit(kind, record)}>Edit</button>
         <button type="button" className="admin-secondary-button" onClick={() => toggleActive(kind, record)}>
           {record.active ? 'Deactivate' : 'Activate'}
@@ -287,6 +301,16 @@ export function AdminTeamPage() {
             </div>
 
             {renderForm('barber')}
+
+            {scheduleBarber && (
+              // key: switching to another barber starts a fresh editor with their data.
+              <BarberSchedule
+                key={scheduleBarber.id}
+                barber={scheduleBarber}
+                adminFetch={adminFetch}
+                onClose={() => setScheduleBarber(null)}
+              />
+            )}
 
             <ul className="admin-manage-list">
               {barbers.map((barber) => renderRow(
