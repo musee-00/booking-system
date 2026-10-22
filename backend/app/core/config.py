@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from_email: str = "no-reply@northstreetstudio.se"
     smtp_use_tls: bool = False
+    # Production email (Render blocks SMTP): when set, emails go through Brevo's
+    # HTTPS API instead of SMTP. SMTP_FROM_EMAIL is the sender address.
+    brevo_api_key: str = ""
+    # Where customer replies go; defaults to SMTP_FROM_EMAIL.
+    email_reply_to: str = ""
     shop_name: str = "North Street Studio"
     shop_address: str = "27 North Street, Gothenburg"
     # Comma-separated list of frontend URLs allowed to call the API from a browser,

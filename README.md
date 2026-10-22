@@ -6,7 +6,7 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
 
 **Live demo:** https://north-street-booking.vercel.app
 
-> Runs on free tiers: the first request after a quiet period can take up to a minute while the API wakes up, and confirmation emails are disabled in the demo. See [DEPLOYMENT.md](DEPLOYMENT.md).
+> Runs on free tiers: the first request after a quiet period can take up to a minute while the API wakes up. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Stack:** Python · FastAPI · PostgreSQL · SQLAlchemy · Alembic · React · Vite · JWT · pytest
 
@@ -40,7 +40,7 @@ flowchart LR
     C[Customer page<br/>React] -->|public endpoints| API
     A[Staff calendar<br/>React: owner + barbers] -->|JWT bearer token| API
     API[FastAPI<br/>validation + auth] --> DB[(PostgreSQL<br/>exclusion constraint)]
-    API -.->|background task| SMTP[SMTP<br/>confirmation email]
+    API -.->|background task| MAIL[Brevo API / SMTP<br/>confirmation email]
 ```
 
 | Folder | Contents |
@@ -177,17 +177,29 @@ All settings are read from `backend/.env`. See [`backend/.env.example`](backend/
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Admin account (created on first login if missing) |
 | `JWT_SECRET` | Token signing key. **Use a long random value in production**: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime |
-| `SMTP_*` | Outgoing email server |
+| `BREVO_API_KEY` | Production email: send through Brevo's HTTPS API (Render's free tier blocks SMTP) |
+| `SMTP_*` | Local email server; `SMTP_FROM_EMAIL` is also the sender address for Brevo |
+| `EMAIL_REPLY_TO` | Where customer replies go (defaults to `SMTP_FROM_EMAIL`) |
 | `SHOP_NAME`, `SHOP_ADDRESS` | Shown in confirmation emails |
 | `CORS_ORIGINS` | Comma-separated frontend URLs allowed to call the API, e.g. `https://your-app.vercel.app` |
 
 The frontend reads one build-time variable, `VITE_API_URL`: the backend's address, without `/api/v1`. It defaults to `http://localhost:8000`. See [`frontend/.env.example`](frontend/.env.example).
 
-### Confirmation emails (Gmail SMTP)
+### Confirmation emails
 
-Emails are sent as a FastAPI **background task**, after the booking is saved and the response is returned. A slow or failing mail server never blocks or breaks a booking; failures are logged.
+Emails are sent as a FastAPI **background task**, after the booking is saved and the response is returned. A slow or failing mail provider never blocks or breaks a booking; failures are logged with the provider's reason.
 
-To send through Gmail:
+`app/mailer.py` picks how to send from the settings:
+
+| Setting | Delivery | Used |
+|---|---|---|
+| `BREVO_API_KEY` set | HTTPS POST to Brevo's transactional email API | In production: Render's free tier blocks SMTP ports |
+| `SMTP_HOST` set | SMTP | Locally, e.g. Gmail or Mailpit |
+| Neither | Not sent | Tests and setups without email |
+
+Brevo setup for production is in [DEPLOYMENT.md](DEPLOYMENT.md#confirmation-emails-with-brevo).
+
+To send through Gmail locally:
 1. Turn on 2-step verification on the Google account.
 2. Create an **App password** (Google Account → Security → App passwords).
 3. Set the following in `.env`:
@@ -202,7 +214,7 @@ To send through Gmail:
 
 For local development without sending real email, use [Mailpit](https://mailpit.axllent.org/) (`SMTP_HOST=localhost`, `SMTP_PORT=1025`, `SMTP_USE_TLS=false`). The settings are already in `.env.example`.
 
-> **Deliverability note:** mail sent from a personal Gmail address often lands in Junk at Outlook / Microsoft 365 recipients, because the sender has no verified domain. A production setup would use a transactional email service (for example Resend or Postmark) with a custom domain and SPF, DKIM and DMARC records. The code uses plain SMTP, so switching only changes `SMTP_*` settings.
+> **Deliverability note:** a personal Gmail address can't be authenticated (SPF, DKIM, DMARC prove a *domain* may send). Over SMTP such mail often lands in Junk at Outlook / Microsoft 365, and Brevo rewrites the sender to "via brevosend.com" so it passes Gmail's and Yahoo's sender rules. A real shop would authenticate its own domain in Brevo; no code change is needed.
 
 ---
 
@@ -215,7 +227,6 @@ The API and PostgreSQL run on **Render** (defined in [`render.yaml`](render.yaml
 ## Known limitations and next steps
 
 - **Not built yet:**
-  - confirmation emails in production through an HTTP email API (free Render instances block SMTP)
   - a link in the email for customers to cancel or move their own booking
   - a reminder email the day before
   - automated frontend tests in the repository (the flows were verified with headless-browser scripts during development)

@@ -92,12 +92,27 @@ Open the browser's DevTools (**Cmd + Option + I**) → **Console**:
 
 Vercel redeploys the frontend automatically on every push to `main`, and creates a preview URL for every other branch.
 
+## Confirmation emails with Brevo
+
+1. Create a free account at https://www.brevo.com.
+2. **Senders, Domains & Dedicated IPs → Senders → Add a sender:** your name or shop name and the email address that should send the confirmations (for example your Gmail). Confirm it with the code Brevo sends to that inbox.
+3. **SMTP & API → API Keys → Generate a new API key.** Copy it once; Brevo won't show it again. Don't paste it anywhere else.
+4. In Render → `north-street-api` → **Environment**, add:
+
+   | Variable | Value |
+   |---|---|
+   | `BREVO_API_KEY` | The key from step 3 |
+   | `SMTP_FROM_EMAIL` | The sender address from step 2 |
+
+   Save; Render redeploys.
+5. Make a booking with your own email address. The Render **Logs** show `Sent booking confirmation #… via brevo`, or the reason if Brevo refused it (for example an invalid key or an unverified sender).
+
 ## Free-tier limitations
 
 These are fine for a portfolio demo, but good to know (and to mention when you show it):
 
 - **Cold starts:** the free API sleeps after 15 minutes without traffic. The first request after that takes about a minute; the admin login shows "Logging in…" while it waits.
-- **No confirmation emails:** free Render services can't connect to SMTP ports (25/465/587), so `SMTP_HOST` is empty and emails are skipped. Bookings work normally. To enable email, use an HTTP-based email API (for example Brevo or Resend, both of which have free tiers), or a paid Render instance with the `SMTP_*` variables set.
+- **Emails go through Brevo, not SMTP:** free Render services can't connect to SMTP ports (25/465/587), so confirmation emails are sent over HTTPS to Brevo's API (free: 300 emails/day). Without `BREVO_API_KEY`, bookings work normally and only the email is skipped. With a Gmail sender, Brevo shows the sender as "via brevosend.com", because free email domains can't be authenticated; authenticating your own domain in Brevo removes that.
 - **Database lifetime:** free Render Postgres databases **expire 30 days after creation**, with a 14-day grace period before deletion. To keep the demo running longer, upgrade the database, or create a new free one and redeploy. Migrations recreate the schema; the demo data has to be added again.
 - **Migrations run at startup:** pre-deploy commands are a paid feature, so `alembic upgrade head` runs in the start command. If a migration fails, the new version doesn't start and the previous one keeps serving.
 

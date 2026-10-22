@@ -1,8 +1,6 @@
 import logging
-import smtplib
 from datetime import date as date_type, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from email.message import EmailMessage
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -11,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_access_token, create_admin_user_record, get_current_user, require_owner, verify_password
 from app.core.config import settings
+from app.mailer import EmailDeliveryError, OutgoingEmail, email_backend, send_email
 from app.db.database import get_db
 from app.models import ROLE_BARBER, AdminUser, Appointment, Barber, Service, barber_services
 from app.schedule import (
@@ -63,8 +62,8 @@ def send_booking_confirmation_email(
     ends_at: datetime,
     price: str,
 ) -> None:
-    # Email is optional: with no SMTP_HOST configured, bookings work without it.
-    if not customer_email or not settings.smtp_host:
+    # Email is optional: with no email backend configured, bookings work without it.
+    if not customer_email or email_backend() == "none":
         return
 
     starts_at_stockholm = starts_at.astimezone(STOCKHOLM_TZ)
@@ -154,26 +153,18 @@ def send_booking_confirmation_email(
     </html>
     """
 
-    message = EmailMessage()
-    message["Subject"] = f"Booking confirmed — {service_name} (#{booking_id})"
-    message["From"] = settings.smtp_from_email
-    message["To"] = customer_email
-    message.set_content(plain_text)
-    message.add_alternative(html, subtype="html")
-
+    email = OutgoingEmail(
+        to=customer_email,
+        subject=f"Booking confirmed — {service_name} (#{booking_id})",
+        text=plain_text,
+        html=html,
+    )
     try:
-        # Timeout so an unreachable mail server (or a host that blocks SMTP ports)
-        # fails within seconds instead of hanging the background task for minutes.
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as smtp:
-            if settings.smtp_use_tls:
-                smtp.starttls()
-                if settings.smtp_username and settings.smtp_password:
-                    smtp.login(settings.smtp_username, settings.smtp_password)
-            elif settings.smtp_username and settings.smtp_password:
-                smtp.login(settings.smtp_username, settings.smtp_password)
-            smtp.send_message(message)
-    except Exception:
-        logger.exception("Failed to send booking confirmation email to %s", customer_email)
+        backend = send_email(email)
+        logger.info("Sent booking confirmation #%s via %s", booking_id, backend)
+    except EmailDeliveryError:
+        # The booking is already saved; a failed email must not undo it.
+        logger.exception("Failed to send booking confirmation #%s to %s", booking_id, customer_email)
 
 
 OVERLAP_CONSTRAINT = "appointments_no_overlap"

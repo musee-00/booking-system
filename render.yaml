@@ -41,10 +41,16 @@ services:
         sync: false         # you type it in the Render dashboard; never in git
       - key: CORS_ORIGINS
         sync: false         # your Vercel URL, e.g. https://north-street.vercel.app
-      # Free Render services can't use SMTP ports (25/465/587), so confirmation
-      # emails are switched off here. Bookings work normally without them.
+      # Confirmation emails. Free Render services can't use SMTP ports
+      # (25/465/587), so emails go over HTTPS to Brevo's API instead. Both values
+      # are entered in the dashboard (see DEPLOYMENT.md). Without BREVO_API_KEY,
+      # bookings still work; only the email is skipped.
+      - key: BREVO_API_KEY
+        sync: false         # secret: Brevo -> SMTP & API -> API keys
+      - key: SMTP_FROM_EMAIL
+        sync: false         # the sender address verified in Brevo, e.g. you@gmail.com
       - key: SMTP_HOST
-        value: ""
+        value: ""           # SMTP isn't used on Render
       - key: SHOP_NAME
         value: North Street Studio
       - key: SHOP_ADDRESS

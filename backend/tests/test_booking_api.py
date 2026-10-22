@@ -159,7 +159,7 @@ def test_send_booking_confirmation_email_to_customer(admin_headers, mock_email_s
 def test_confirmation_email_contains_booking_reference() -> None:
     """Renders the real email (SMTP mocked) and checks the reference is in subject and body."""
     start = stockholm(future_business_day(), "10:00")
-    with patch("app.api.v1.router.smtplib.SMTP") as mock_smtp:
+    with patch("app.mailer.smtplib.SMTP") as mock_smtp:
         send_booking_confirmation_email(
             booking_id=42,
             customer_email="dana@example.com",
@@ -650,7 +650,7 @@ def test_deactivated_service_is_hidden_and_not_bookable(admin_headers) -> None:
 
 def test_confirmation_email_is_skipped_when_smtp_is_not_configured() -> None:
     start = stockholm(future_business_day(), "10:00")
-    with patch("app.api.v1.router.settings.smtp_host", ""), patch("app.api.v1.router.smtplib.SMTP") as mock_smtp:
+    with patch("app.api.v1.router.settings.smtp_host", ""), patch("app.mailer.smtplib.SMTP") as mock_smtp:
         send_booking_confirmation_email(
             booking_id=1, customer_email="dana@example.com", barber_name="Mika", service_name="Classic Cut",
             starts_at=start, ends_at=start + timedelta(minutes=45), price="290.00",
