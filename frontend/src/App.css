@@ -27,7 +27,7 @@
   --on-gold: #121212;
   --success-text: #86efac;
   --danger-text: #fca5a5;
-  --calendar-bg: rgba(9, 12, 18, 0.55);
+  --calendar-bg: rgb(var(--ink) / 0.07); /* working days: a bit lighter than the card */
   --unavailable-bg: rgba(15, 23, 42, 0.35);
   --hatch-dark: rgba(15, 23, 42, 0.6);
   --hatch-light: rgba(148, 163, 184, 0.22);
@@ -57,7 +57,7 @@
   --on-gold: #ffffff;
   --success-text: #15803d;
   --danger-text: #b91c1c;
-  --calendar-bg: rgba(255, 255, 255, 0.7);
+  --calendar-bg: rgb(var(--ink) / 0.05); /* working days: a bit darker than the card */
   --unavailable-bg: rgba(100, 116, 139, 0.12);
   --hatch-dark: rgba(100, 116, 139, 0.2);
   --hatch-light: rgba(100, 116, 139, 0.04);
