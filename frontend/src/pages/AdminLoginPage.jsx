@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { API_BASE, NETWORK_ERROR, fetchJson, getErrorMessage, saveSession } from '../api.js'
 import { SHOP } from '../shop.js'
+import { ThemeToggle } from '../components/ThemeToggle.jsx'
 
 export function AdminLoginPage() {
   const navigate = useNavigate()
@@ -54,7 +55,10 @@ export function AdminLoginPage() {
             </div>
           </div>
 
-          <Link to="/" className="admin-secondary-button">Customer page</Link>
+          <div className="admin-toolbar">
+            <ThemeToggle />
+            <Link to="/" className="admin-secondary-button">Customer page</Link>
+          </div>
         </header>
 
         <main className="admin-main">

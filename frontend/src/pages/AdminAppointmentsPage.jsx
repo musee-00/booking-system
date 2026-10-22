@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { API_BASE, NETWORK_ERROR, clearSession, fetchJson, getSession, useAdminFetch } from '../api.js'
 import { SHOP } from '../shop.js'
+import { ThemeToggle } from '../components/ThemeToggle.jsx'
 const OPENING_HOUR = 9
 const CLOSING_HOUR = 18
 const SLOT_MINUTES = 30
@@ -495,6 +496,7 @@ export function AdminAppointmentsPage() {
           </div>
 
           <div className="admin-toolbar">
+            <ThemeToggle />
             <span className="admin-chip">
               Signed in as {session.username}{session.isOwner ? ' (owner)' : ''}
             </span>

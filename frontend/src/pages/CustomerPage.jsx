@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE, fetchJson } from '../api.js'
 import { SHOP, SHOP_ADDRESS, SHOP_PHONE_LINK } from '../shop.js'
+import { ThemeToggle } from '../components/ThemeToggle.jsx'
 const NAV_ITEMS = [
   { label: 'Services', href: '#services' },
   { label: 'Team', href: '#team' },
@@ -487,6 +488,7 @@ export function CustomerPage() {
         <div className="topbar__contact">
           <span>Call us</span>
           <a href={SHOP_PHONE_LINK}>{SHOP.phone}</a>
+          <ThemeToggle />
         </div>
       </header>
 

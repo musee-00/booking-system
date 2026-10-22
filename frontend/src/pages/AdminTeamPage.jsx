@@ -4,6 +4,7 @@ import { NETWORK_ERROR, clearSession, getErrorMessage, useAdminFetch } from '../
 import { SHOP } from '../shop.js'
 import { BarberLogin } from '../components/BarberLogin.jsx'
 import { BarberSchedule } from '../components/BarberSchedule.jsx'
+import { ThemeToggle } from '../components/ThemeToggle.jsx'
 
 const DEFAULT_BARBER_COLOR = '#d9b57f'
 
@@ -338,6 +339,7 @@ export function AdminTeamPage() {
           </div>
 
           <div className="admin-toolbar">
+            <ThemeToggle />
             <Link to="/admin/appointments" className="admin-secondary-button">Calendar</Link>
             <Link to="/" className="admin-secondary-button">Customer page</Link>
             <button className="admin-secondary-button" onClick={handleLogout} type="button">Log out</button>

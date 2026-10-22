@@ -29,6 +29,9 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
   - set each barber's weekly hours with a lunch break, and add time off (whole days or part of a day). Existing bookings that clash are listed, never cancelled automatically;
   - create, reset or remove each barber's own login.
 
+**Everyone**
+- Light and dark mode: follows the device's setting until the visitor picks one with the ☀/☾ button, then remembers it. All colours are CSS custom properties (design tokens) switched by a `data-theme` attribute, set before the page draws so there's no flash of the wrong theme.
+
 **Barber** (like Setmore's "Standard" access level)
 - Logs in with their own account and sees and manages **only their own calendar**: their own bookings, which they can create and cancel. Services, hours, other barbers and accounts stay with the owner.
 

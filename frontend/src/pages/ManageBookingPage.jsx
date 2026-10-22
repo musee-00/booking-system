@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { API_BASE, NETWORK_ERROR, fetchJson, getErrorMessage } from '../api.js'
 import { SHOP, SHOP_ADDRESS, SHOP_PHONE_LINK } from '../shop.js'
+import { ThemeToggle } from '../components/ThemeToggle.jsx'
 
 const formatDate = (value) => new Date(value).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
 const formatTime = (value) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -148,6 +149,7 @@ export function ManageBookingPage() {
         <div className="topbar__contact">
           <span>Call us</span>
           <a href={SHOP_PHONE_LINK}>{SHOP.phone}</a>
+          <ThemeToggle />
         </div>
       </header>
 
