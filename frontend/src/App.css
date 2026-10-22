@@ -1357,9 +1357,15 @@ button {
 
 .admin-calendar-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: flex-start;
+}
+
+/* The details panel only takes space while it's open, so the week's seven
+   columns get the full width otherwise. */
+.admin-calendar-layout.has-panel {
+  grid-template-columns: minmax(0, 1fr) 320px;
 }
 
 .admin-calendar-main {
@@ -1535,49 +1541,23 @@ button {
   width: 100%;
 }
 
-.admin-booking-block__tooltip {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translateX(-50%);
-  max-width: min(220px, calc(100vw - 32px));
-  width: max-content;
-  max-width: 220px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.96);
-  color: #f8fafc;
-  font-size: 0.7rem;
-  line-height: 1.4;
-  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28);
-  opacity: 0;
-  pointer-events: none;
-  white-space: normal;
-  word-break: break-word;
-  transition: opacity 0.15s ease;
-  z-index: 10;
-}
-
-.admin-booking-block:hover .admin-booking-block__tooltip,
-.admin-booking-block:focus-visible .admin-booking-block__tooltip {
-  opacity: 1;
-}
-
-.admin-booking-block strong,
-.admin-booking-block span,
-.admin-booking-block small {
+/* Scoped to the block's own text, so these rules can't leak into other
+   elements inside the block. */
+.admin-booking-block__content strong,
+.admin-booking-block__content span,
+.admin-booking-block__content small {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.admin-booking-block strong {
+.admin-booking-block__content strong {
   font-size: 0.82rem;
 }
 
-.admin-booking-block span,
-.admin-booking-block small {
+.admin-booking-block__content span,
+.admin-booking-block__content small {
   font-size: 0.7rem;
   opacity: 0.9;
 }
@@ -1674,8 +1654,9 @@ button {
 }
 
 @media (max-width: 1100px) {
-  .admin-calendar-layout {
-    grid-template-columns: 1fr;
+  .admin-calendar-layout,
+  .admin-calendar-layout.has-panel {
+    grid-template-columns: 1fr; /* the details panel goes below the calendar */
   }
 
   .admin-calendar-panel {

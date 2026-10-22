@@ -559,7 +559,7 @@ export function AdminAppointmentsPage() {
               <strong>{getDateRangeLabel()}</strong>
             </div>
 
-            <div className="admin-calendar-layout">
+            <div className={`admin-calendar-layout ${selectedAppointment || selectedSlot ? 'has-panel' : ''}`}>
               <div className="admin-calendar-main">
                 <div
                   className="admin-calendar-grid"
@@ -636,6 +636,9 @@ export function AdminAppointmentsPage() {
                                 }}
                                 onClick={() => openAppointmentPanel(appointment)}
                                 aria-label={tooltipText}
+                                // The browser's own tooltip: never clipped by the calendar column
+                                // (the old custom one was cut off at the column's edges).
+                                title={tooltipText}
                               >
                                 <div className="admin-booking-block__content">
                                   <strong>{appointment.customer_name}</strong>
@@ -646,7 +649,6 @@ export function AdminAppointmentsPage() {
                                     </>
                                   )}
                                 </div>
-                                <span className="admin-booking-block__tooltip">{tooltipText}</span>
                               </button>
                             )
                           })}
