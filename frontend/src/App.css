@@ -28,6 +28,7 @@
   --success-text: #86efac;
   --danger-text: #fca5a5;
   --calendar-bg: rgb(var(--ink) / 0.07); /* working days: a bit lighter than the card */
+  --calendar-border: rgb(var(--ink) / 0.3); /* light lines around the calendar days */
   --unavailable-bg: rgba(15, 23, 42, 0.35);
   --hatch-dark: rgba(15, 23, 42, 0.6);
   --hatch-light: rgba(148, 163, 184, 0.22);
@@ -58,6 +59,7 @@
   --success-text: #15803d;
   --danger-text: #b91c1c;
   --calendar-bg: rgb(var(--ink) / 0.05); /* working days: a bit darker than the card */
+  --calendar-border: rgb(var(--ink) / 0.35); /* dark lines around the calendar days */
   --unavailable-bg: rgba(100, 116, 139, 0.12);
   --hatch-dark: rgba(100, 116, 139, 0.2);
   --hatch-light: rgba(100, 116, 139, 0.04);
@@ -1413,7 +1415,7 @@ button {
   align-items: center;
   justify-content: center;
   min-height: 56px;
-  border: 1px solid rgb(var(--ink) / 0.06);
+  border: 1px solid var(--calendar-border);
   border-radius: 12px;
   background: rgb(var(--ink) / 0.02);
   color: var(--text);
@@ -1463,7 +1465,7 @@ button {
 .admin-slot-surface {
   position: relative;
   min-height: calc(19 * var(--slot-height, 32px)); /* 19 half-hour rows, 09:00-18:00 */
-  border: 1px solid rgb(var(--ink) / 0.06);
+  border: 1px solid var(--calendar-border);
   border-radius: 12px;
   background: var(--calendar-bg);
   overflow: hidden;
