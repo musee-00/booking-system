@@ -6,7 +6,26 @@ import { ThemeToggle } from '../components/ThemeToggle.jsx'
 const OPENING_HOUR = 9
 const CLOSING_HOUR = 18
 const SLOT_MINUTES = 30
-const SLOT_HEIGHT = 32
+// Calendar zoom: pixel height of one 30-minute row. The choice is remembered.
+const ZOOM_LEVELS = [
+  { height: 32, label: 'Compact' },
+  { height: 48, label: 'Normal' },
+  { height: 64, label: 'Large' },
+  { height: 80, label: 'Extra large' },
+]
+const DEFAULT_ZOOM = 1
+const ZOOM_STORAGE_KEY = 'calendar-zoom'
+
+const readSavedZoom = () => {
+  try {
+    const raw = localStorage.getItem(ZOOM_STORAGE_KEY)
+    if (raw === null) return DEFAULT_ZOOM // careful: Number(null) is 0, which is a valid level
+    const saved = Number(raw)
+    return Number.isInteger(saved) && saved >= 0 && saved < ZOOM_LEVELS.length ? saved : DEFAULT_ZOOM
+  } catch {
+    return DEFAULT_ZOOM
+  }
+}
 // Same opening days as the API (is_business_day): Tuesday-Saturday.
 // JavaScript's getDay() counts Sunday as 0, so Tue-Sat is 2-6.
 const OPEN_WEEKDAYS = [2, 3, 4, 5, 6]
@@ -113,6 +132,8 @@ export function AdminAppointmentsPage() {
   const [showCancelled, setShowCancelled] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
   const [now, setNow] = useState(() => new Date())
+  const [zoom, setZoom] = useState(readSavedZoom)
+  const slotHeight = ZOOM_LEVELS[zoom].height
   // { barberId: { working_hours, time_off } } for the visible week; null until loaded.
   const [schedules, setSchedules] = useState(null)
   const [viewMode, setViewMode] = useState('week')
@@ -260,11 +281,21 @@ export function AdminAppointmentsPage() {
     }
   }
 
+  const changeZoom = (step) => {
+    const next = Math.min(Math.max(zoom + step, 0), ZOOM_LEVELS.length - 1)
+    setZoom(next)
+    try {
+      localStorage.setItem(ZOOM_STORAGE_KEY, String(next))
+    } catch {
+      // Not remembered, but the zoom still changes for this visit.
+    }
+  }
+
   const getAppointmentStyle = (appointment) => {
     const startMinutes = getMinutesFromDate(appointment.starts_at)
     const durationMinutes = getDurationMinutes(appointment.starts_at, appointment.ends_at)
-    const top = ((Math.max(startMinutes, OPENING_HOUR * 60) - OPENING_HOUR * 60) / SLOT_MINUTES) * SLOT_HEIGHT
-    const height = Math.max(((durationMinutes / SLOT_MINUTES) * SLOT_HEIGHT) - 8, 34)
+    const top = ((Math.max(startMinutes, OPENING_HOUR * 60) - OPENING_HOUR * 60) / SLOT_MINUTES) * slotHeight
+    const height = Math.max(((durationMinutes / SLOT_MINUTES) * slotHeight) - 8, 34)
 
     return {
       top: `${Math.max(top, 0)}px`,
@@ -531,7 +562,7 @@ export function AdminAppointmentsPage() {
         </header>
 
         <main className="admin-main">
-          <section className="admin-panel">
+          <section className="admin-panel admin-panel--calendar">
             <div className="admin-panel__header">
               <div>
                 <p className="admin-kicker">Overview</p>
@@ -539,6 +570,29 @@ export function AdminAppointmentsPage() {
               </div>
 
               <div className="admin-calendar-nav">
+                <div className="admin-zoom" role="group" aria-label="Calendar zoom">
+                  <button
+                    type="button"
+                    className="admin-secondary-button"
+                    onClick={() => changeZoom(-1)}
+                    disabled={zoom === 0}
+                    aria-label="Smaller time slots"
+                    title="Smaller time slots"
+                  >
+                    −
+                  </button>
+                  <span className="admin-zoom__label" aria-live="polite">{ZOOM_LEVELS[zoom].label}</span>
+                  <button
+                    type="button"
+                    className="admin-secondary-button"
+                    onClick={() => changeZoom(1)}
+                    disabled={zoom === ZOOM_LEVELS.length - 1}
+                    aria-label="Larger time slots"
+                    title="Larger time slots"
+                  >
+                    +
+                  </button>
+                </div>
                 <button type="button" className="admin-secondary-button" onClick={() => getNextPeriodDate(-1)} aria-label="Previous period">
                   ‹
                 </button>
@@ -564,6 +618,8 @@ export function AdminAppointmentsPage() {
                 <div
                   className="admin-calendar-grid"
                   style={{
+                    // Row height for the CSS (time labels, rows, clickable cells).
+                    '--slot-height': `${slotHeight}px`,
                     gridTemplateColumns:
                       viewMode === 'week'
                         ? '80px repeat(7, minmax(0, 1fr))'
@@ -596,7 +652,7 @@ export function AdminAppointmentsPage() {
 
                   {calendarColumns.map((column) => {
                     const currentDayKey = dateKeyFromValue(now)
-                    const currentLineTop = ((currentTimeMinutes - OPENING_HOUR * 60) / SLOT_MINUTES) * SLOT_HEIGHT
+                    const currentLineTop = ((currentTimeMinutes - OPENING_HOUR * 60) / SLOT_MINUTES) * slotHeight
                     const shouldShowCurrentLine =
                       column.key === currentDayKey && currentTimeMinutes >= OPENING_HOUR * 60 && currentTimeMinutes <= CLOSING_HOUR * 60
 
