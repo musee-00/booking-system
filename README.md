@@ -18,6 +18,7 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
 - Book in a five-step wizard: service → barber → time → details → confirm. Steps that are already answered are skipped (for example when booking from a barber's profile).
 - Only see barbers who offer the chosen service, and only real free times: inside that barber's working hours (shop open Tue–Sat 09:00–18:00, Stockholm time), not during their breaks or time off, and not overlapping existing bookings.
 - Get a confirmation screen and email with service, barber, time, price, address and a booking reference.
+- Cancel their own booking without logging in, through a secret link in the email (until 2 hours before), and get a cancellation email.
 
 **Owner** (like Setmore's "Admin" access level)
 - Calendar with week and day views and one colour per barber. Breaks, days off and time off are hatched (day view per barber; week view when nobody works). Past slots and closed days are greyed out; completed and cancelled appointments can be shown or hidden.
@@ -100,6 +101,8 @@ The role is read from the database on every request, not from the token, so remo
 | GET | `/api/v1/barbers` | Public | Active barber profiles |
 | GET | `/api/v1/availability?barber_id&service_id&date` | Public | Free slots (times and barber only) |
 | POST | `/api/v1/appointments` | Public | The booking just created |
+| GET | `/api/v1/manage/{token}` | Secret link | The customer's own booking and whether it can still be cancelled |
+| POST | `/api/v1/manage/{token}/cancel` | Secret link | Cancels it (until `CUSTOMER_CANCEL_CUTOFF_HOURS` before) |
 | POST | `/api/v1/admin/login` | Public | JWT, role and barber id |
 | GET | `/api/v1/auth/me` | Staff | Who is logged in |
 | GET | `/api/v1/appointments` | Staff | Owner: all bookings with customer contact details. Barber: only their own |
@@ -113,6 +116,8 @@ The role is read from the database on every request, not from the token, so remo
 | GET, POST, PUT, DELETE | `/api/v1/accounts` | **Owner** | Barber logins: list, create, reset password, remove |
 
 No public endpoint returns another customer's personal data, and a test checks this.
+
+**Customer self-service links.** Each booking gets a token from `secrets.token_urlsafe(32)` (256 bits, so it can't be guessed the way a booking id could). Only its SHA-256 hash is stored, like a password, so a copy of the database can't be used to build links; the plain token only appears in the customer's email. A plain hash is enough here (bcrypt is for passwords) because the token is already long and random.
 
 **Barbers and services are never deleted, only deactivated** (`active = false`). Appointments reference them with foreign keys, so a hard delete would either fail or destroy booking history. An inactive barber or service is hidden from customers and can't be booked, but old appointments keep it, and it can be reactivated. Interactive API docs with an **Authorize** button are available at `http://localhost:8000/docs`.
 
@@ -227,6 +232,6 @@ The API and PostgreSQL run on **Render** (defined in [`render.yaml`](render.yaml
 ## Known limitations and next steps
 
 - **Not built yet:**
-  - a link in the email for customers to cancel or move their own booking
+  - letting customers move (not just cancel) their booking through the link
   - a reminder email the day before
   - automated frontend tests in the repository (the flows were verified with headless-browser scripts during development)

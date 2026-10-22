@@ -6,6 +6,7 @@ import { AdminAppointmentsPage } from './pages/AdminAppointmentsPage.jsx'
 import { AdminLoginPage } from './pages/AdminLoginPage.jsx'
 import { AdminTeamPage } from './pages/AdminTeamPage.jsx'
 import { CustomerPage } from './pages/CustomerPage.jsx'
+import { ManageBookingPage } from './pages/ManageBookingPage.jsx'
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -41,6 +42,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<CustomerPage />} />
+          <Route path="/booking/:token" element={<ManageBookingPage />} />
           <Route path="/admin" element={<AdminLoginPage />} />
           <Route
             path="/admin/appointments"
