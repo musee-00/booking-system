@@ -107,6 +107,12 @@ Vercel redeploys the frontend automatically on every push to `main`, and creates
    Save; Render redeploys.
 5. Make a booking with your own email address. The Render **Logs** show `Sent booking confirmation #… via brevo`, or the reason if Brevo refused it (for example an invalid key or an unverified sender).
 
+**Create the key with the least access it needs:** Access → *Restricted*, Transactional email → *All*, everything else → *None*. If the key ever leaked, it could only send email.
+
+**The key expires** after its set lifetime (one year by default) **and after 90 days without use**. When it does, bookings keep working but emails stop, and the Logs show `Brevo answered 401`. Generate a new key and replace `BREVO_API_KEY` in Render.
+
+**Keep "block unauthorized IP addresses" off** for API keys: Render's free instances don't have a fixed outgoing IP, so Brevo would refuse the calls.
+
 ## Free-tier limitations
 
 These are fine for a portfolio demo, but good to know (and to mention when you show it):
