@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { NETWORK_ERROR, clearSession, getErrorMessage, useAdminFetch } from '../api.js'
+import { SHOP } from '../shop.js'
 import { BarberLogin } from '../components/BarberLogin.jsx'
 import { BarberSchedule } from '../components/BarberSchedule.jsx'
 
@@ -329,7 +330,7 @@ export function AdminTeamPage() {
       <div className="admin-shell">
         <header className="admin-header">
           <div className="admin-brand">
-            <div className="brand-mark">NS</div>
+            <div className="brand-mark">{SHOP.initials}</div>
             <div>
               <p className="admin-eyebrow">Admin</p>
               <h1>Team &amp; services</h1>

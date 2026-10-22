@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { API_BASE, NETWORK_ERROR, clearSession, fetchJson, getSession, useAdminFetch } from '../api.js'
+import { SHOP } from '../shop.js'
 const OPENING_HOUR = 9
 const CLOSING_HOUR = 18
 const SLOT_MINUTES = 30
@@ -486,10 +487,10 @@ export function AdminAppointmentsPage() {
       <div className="admin-shell">
         <header className="admin-header">
           <div className="admin-brand">
-            <div className="brand-mark">NS</div>
+            <div className="brand-mark">{SHOP.initials}</div>
             <div>
               <p className="admin-eyebrow">Admin</p>
-              <h1>North Street Studio</h1>
+              <h1>{SHOP.name}</h1>
             </div>
           </div>
 

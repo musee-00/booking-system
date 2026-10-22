@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { API_BASE, NETWORK_ERROR, fetchJson, getErrorMessage, saveSession } from '../api.js'
+import { SHOP } from '../shop.js'
 
 export function AdminLoginPage() {
   const navigate = useNavigate()
@@ -46,10 +47,10 @@ export function AdminLoginPage() {
       <div className="admin-shell">
         <header className="admin-header">
           <div className="admin-brand">
-            <div className="brand-mark">NS</div>
+            <div className="brand-mark">{SHOP.initials}</div>
             <div>
               <p className="admin-eyebrow">Admin access</p>
-              <h1>North Street Studio</h1>
+              <h1>{SHOP.name}</h1>
             </div>
           </div>
 

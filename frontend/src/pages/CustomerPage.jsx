@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE, fetchJson } from '../api.js'
+import { SHOP, SHOP_ADDRESS, SHOP_PHONE_LINK } from '../shop.js'
 const NAV_ITEMS = [
   { label: 'Services', href: '#services' },
   { label: 'Team', href: '#team' },
@@ -28,8 +29,6 @@ const SERVICE_IMAGES = [
   'https://images.unsplash.com/photo-1521341057461-6eb5f40b07ab?auto=format&fit=crop&w=900&q=80',
 ]
 
-const SHOP_ADDRESS = '27 North Street, Gothenburg'
-const SHOP_PHONE = '+46 70 123 45 67'
 
 const WIZARD_STEPS = ['Service', 'Barber', 'Time', 'Details', 'Confirm']
 const STEP = { SERVICE: 0, BARBER: 1, TIME: 2, DETAILS: 3, CONFIRM: 4 }
@@ -68,7 +67,7 @@ const formatPrice = (amount) => `${Number(amount).toFixed(0)} kr`
 
 const getBarberInitials = (name = '') => {
   const parts = name.split(/\s+/).filter(Boolean)
-  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('') || 'NS'
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('') || SHOP.initials
 }
 
 // Default day for the time picker. A plain function outside the component, so
@@ -475,8 +474,8 @@ export function CustomerPage() {
     <div className="premium-page">
       <header className="topbar">
         <div className="topbar__brand">
-          <div className="brand-mark">NS</div>
-          <span>North Street</span>
+          <div className="brand-mark">{SHOP.initials}</div>
+          <span>{SHOP.shortName}</span>
         </div>
 
         <nav className="topbar__nav" aria-label="Main navigation">
@@ -487,7 +486,7 @@ export function CustomerPage() {
 
         <div className="topbar__contact">
           <span>Call us</span>
-          <a href="tel:+46701234567">+46 70 123 45 67</a>
+          <a href={SHOP_PHONE_LINK}>{SHOP.phone}</a>
         </div>
       </header>
 
@@ -528,10 +527,10 @@ export function CustomerPage() {
 
           <aside className="booking-sidecard">
             <div className="sidecard-brand">
-              <div className="brand-mark brand-mark--dark">NS</div>
+              <div className="brand-mark brand-mark--dark">{SHOP.initials}</div>
               <div>
                 <p className="section-kicker section-kicker--small">Barber studio</p>
-                <h3>North Street</h3>
+                <h3>{SHOP.shortName}</h3>
               </div>
             </div>
 
@@ -543,14 +542,14 @@ export function CustomerPage() {
               <div className={`status-dot ${isOpenNow ? 'open' : 'closed'}`} />
               <div>
                 <strong>{isOpenNow ? 'Open now' : 'Closed now'}</strong>
-                <span>Today · Tue–Sat · 09:00–18:00</span>
+                <span>Today · {SHOP.hours}</span>
               </div>
             </div>
 
             <div className="address-block">
               <p>Address</p>
-              <strong>27 North Street</strong>
-              <span>Gothenburg</span>
+              <strong>{SHOP.street}</strong>
+              <span>{SHOP.city}</span>
             </div>
           </aside>
         </div>
@@ -621,9 +620,9 @@ export function CustomerPage() {
 
           <div className="address-card">
             <div>
-              <strong>North Street Studio</strong>
-              <p>27 North Street<br />Gothenburg</p>
-              <p>Tue–Sat · 09:00–18:00</p>
+              <strong>{SHOP.name}</strong>
+              <p>{SHOP.street}<br />{SHOP.city}</p>
+              <p>{SHOP.hours}</p>
             </div>
             <div className="map-placeholder" aria-label="Map placeholder" />
           </div>
@@ -725,7 +724,7 @@ export function CustomerPage() {
                     A confirmation email is on its way to <strong>{confirmedBooking.email}</strong>.
                     If you can't find it in a few minutes, check your junk or spam folder.
                   </p>
-                  <p>Need to change or cancel? Call us on <a href={`tel:${SHOP_PHONE.replace(/\s/g, '')}`}>{SHOP_PHONE}</a>.</p>
+                  <p>Need to change or cancel? Call us on <a href={SHOP_PHONE_LINK}>{SHOP.phone}</a>.</p>
                 </div>
 
                 <div className="booking-actions">
