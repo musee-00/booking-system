@@ -29,6 +29,7 @@
   --danger-text: #fca5a5;
   --calendar-bg: rgb(var(--ink) / 0.07); /* working days: a bit lighter than the card */
   --calendar-border: rgb(var(--ink) / 0.3); /* light lines around the calendar days */
+  --calendar-slot-line: rgb(var(--ink) / 0.14); /* lines between the time slots, softer than the border */
   --unavailable-bg: rgba(15, 23, 42, 0.35);
   --hatch-dark: rgba(15, 23, 42, 0.6);
   --hatch-light: rgba(148, 163, 184, 0.22);
@@ -60,6 +61,7 @@
   --danger-text: #b91c1c;
   --calendar-bg: rgb(var(--ink) / 0.05); /* working days: a bit darker than the card */
   --calendar-border: rgb(var(--ink) / 0.35); /* dark lines around the calendar days */
+  --calendar-slot-line: rgb(var(--ink) / 0.16); /* lines between the time slots, softer than the border */
   --unavailable-bg: rgba(100, 116, 139, 0.12);
   --hatch-dark: rgba(100, 116, 139, 0.2);
   --hatch-light: rgba(100, 116, 139, 0.04);
@@ -1473,7 +1475,7 @@ button {
 
 .admin-slot-row {
   height: var(--slot-height, 32px);
-  border-bottom: 1px solid rgb(var(--ink) / 0.04);
+  border-bottom: 1px solid var(--calendar-slot-line);
   background: rgb(var(--ink) / 0.01);
 }
 
