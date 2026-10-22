@@ -153,6 +153,10 @@ class Appointment(Base):
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    # SHA-256 of the secret in the customer's "manage your booking" link. Only the
+    # hash is stored (like a password), so a copy of the database can't be used
+    # to build links. NULL for bookings made before the feature existed.
+    manage_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     barber: Mapped[Barber] = relationship(back_populates="appointments")

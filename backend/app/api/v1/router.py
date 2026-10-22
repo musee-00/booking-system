@@ -1,6 +1,5 @@
 import logging
 from datetime import date as date_type, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -9,7 +8,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_access_token, create_admin_user_record, get_current_user, require_owner, verify_password
 from app.core.config import settings
-from app.mailer import EmailDeliveryError, OutgoingEmail, email_backend, send_email
+from app.booking_emails import send_booking_confirmation_email
+from app.booking_tokens import new_manage_token
 from app.db.database import get_db
 from app.models import ROLE_BARBER, AdminUser, Appointment, Barber, Service, barber_services
 from app.schedule import (
@@ -40,131 +40,6 @@ from app.schemas import (
 router = APIRouter(prefix="/api/v1")
 logger = logging.getLogger(__name__)
 SLOT_STEP = timedelta(minutes=30)
-
-
-def format_price_kr(value: str | int | float | Decimal) -> str:
-    price = Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    return f"{int(price)} kr"
-
-
-def format_booking_time_range(starts_at: datetime, ends_at: datetime) -> str:
-    stockholm_start = starts_at.astimezone(STOCKHOLM_TZ)
-    stockholm_end = ends_at.astimezone(STOCKHOLM_TZ)
-    return f"{stockholm_start.strftime('%H:%M')}–{stockholm_end.strftime('%H:%M')}"
-
-
-def send_booking_confirmation_email(
-    booking_id: int,
-    customer_email: str,
-    barber_name: str,
-    service_name: str,
-    starts_at: datetime,
-    ends_at: datetime,
-    price: str,
-) -> None:
-    # Email is optional: with no email backend configured, bookings work without it.
-    if not customer_email or email_backend() == "none":
-        return
-
-    starts_at_stockholm = starts_at.astimezone(STOCKHOLM_TZ)
-    ends_at_stockholm = ends_at.astimezone(STOCKHOLM_TZ)
-    date_label = starts_at_stockholm.strftime("%A %d %B %Y")
-    time_range = format_booking_time_range(starts_at, ends_at)
-    formatted_price = format_price_kr(price)
-
-    plain_text = "\n".join(
-        [
-            f"Hi there,",
-            "",
-            f"Your booking at {settings.shop_name} has been confirmed.",
-            "",
-            f"Service: {service_name}",
-            f"Barber: {barber_name}",
-            f"Date: {date_label}",
-            f"Time: {time_range}",
-            f"Price: {formatted_price}",
-            f"Address: {settings.shop_address}",
-            f"Booking reference: #{booking_id}",
-            "",
-            "We look forward to seeing you.",
-            settings.shop_name,
-        ]
-    )
-
-    html = f"""
-    <html>
-      <body style="margin:0; padding:0; background-color:#f5f1eb; font-family:Arial, sans-serif; color:#1f2937;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f1eb; padding:32px 16px;">
-          <tr>
-            <td align="center">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; background-color:#ffffff; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb;">
-                <tr>
-                  <td style="background-color:#1f2937; padding:24px 32px; color:#ffffff;">
-                    <div style="font-size:28px; font-weight:bold; letter-spacing:0.04em;">{settings.shop_name}</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:32px;">
-                    <p style="margin:0 0 16px; font-size:16px;">Hi there,</p>
-                    <p style="margin:0 0 24px; font-size:16px; line-height:1.6;">Your booking has been confirmed. We’re looking forward to welcoming you.</p>
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:0 0 24px;">
-                      <tr>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Service</strong></td>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{service_name}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Barber</strong></td>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{barber_name}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Date</strong></td>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{date_label}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Time</strong></td>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{time_range}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Price</strong></td>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{formatted_price}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb;"><strong>Address</strong></td>
-                        <td style="padding:10px 0; border-bottom:1px solid #e5e7eb; text-align:right;">{settings.shop_address}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:10px 0;"><strong>Booking reference</strong></td>
-                        <td style="padding:10px 0; text-align:right;">#{booking_id}</td>
-                      </tr>
-                    </table>
-                    <p style="margin:0; font-size:14px; color:#4b5563;">If you need to change your booking, please contact us directly.</p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="background-color:#faf7f4; padding:20px 32px; color:#374151; font-size:14px; border-top:1px solid #e5e7eb;">
-                    {settings.shop_name} • {settings.shop_address}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-    """
-
-    email = OutgoingEmail(
-        to=customer_email,
-        subject=f"Booking confirmed — {service_name} (#{booking_id})",
-        text=plain_text,
-        html=html,
-    )
-    try:
-        backend = send_email(email)
-        logger.info("Sent booking confirmation #%s via %s", booking_id, backend)
-    except EmailDeliveryError:
-        # The booking is already saved; a failed email must not undo it.
-        logger.exception("Failed to send booking confirmation #%s to %s", booking_id, customer_email)
 
 
 OVERLAP_CONSTRAINT = "appointments_no_overlap"
@@ -447,6 +322,9 @@ def create_appointment(
         status="pending",
         notes=appointment.notes,
     )
+    # The secret for the customer's "manage your booking" link. The plain token
+    # only goes into the email; the database keeps its hash.
+    manage_token, db_appointment.manage_token_hash = new_manage_token()
     db.add(db_appointment)
     # Layer 2: two requests can both pass the check above before either is saved
     # (a race condition). The exclusion constraint then rejects the second
@@ -469,6 +347,7 @@ def create_appointment(
         starts_at=db_appointment.starts_at,
         ends_at=db_appointment.ends_at,
         price=service.price,
+        manage_url=f"{settings.public_site_url}/booking/{manage_token}",
     )
     return db_appointment
 

@@ -36,6 +36,7 @@ def test_development_allows_defaults() -> None:
 def test_production_accepts_safe_config() -> None:
     make_settings(
         app_env="production", jwt_secret=STRONG_SECRET, admin_password=STRONG_PASSWORD, cors_origins=FRONTEND,
+        public_site_url=FRONTEND,
     ).check_production_safety()  # no error
 
 
@@ -47,11 +48,16 @@ def test_production_accepts_safe_config() -> None:
         ({"admin_password": DEFAULT_ADMIN_PASSWORD}, "ADMIN_PASSWORD"),
         ({"admin_password": "short"}, "ADMIN_PASSWORD"),
         ({"cors_origins": "http://localhost:5173"}, "CORS_ORIGINS"),
+        ({"public_site_url": "http://localhost:5173"}, "PUBLIC_SITE_URL"),
     ],
 )
 def test_production_refuses_unsafe_config(overrides, expected) -> None:
-    safe = {"jwt_secret": STRONG_SECRET, "admin_password": STRONG_PASSWORD, "cors_origins": FRONTEND}
+    safe = {"jwt_secret": STRONG_SECRET, "admin_password": STRONG_PASSWORD, "cors_origins": FRONTEND, "public_site_url": FRONTEND}
     settings = make_settings(app_env="production", **{**safe, **overrides})
 
     with pytest.raises(RuntimeError, match=expected):
         settings.check_production_safety()
+
+
+def test_public_site_url_trailing_slash_is_removed() -> None:
+    assert make_settings(public_site_url=f"{FRONTEND}/").public_site_url == FRONTEND

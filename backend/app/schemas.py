@@ -215,3 +215,20 @@ class BarberScheduleRead(BaseModel):
     barber_id: int
     working_hours: list[WorkingHoursBlock]
     time_off: list[TimeOffRead]
+
+
+class ManagedBookingRead(BaseModel):
+    """What a customer sees through their "manage your booking" link: their own
+    booking only, and never the token or other customers' data."""
+
+    id: int
+    customer_name: str
+    service_name: str
+    barber_name: str
+    price: Decimal
+    starts_at: datetime
+    ends_at: datetime
+    status: str
+    can_cancel: bool
+    cancel_blocked_reason: str | None = None
+    cancel_deadline: datetime

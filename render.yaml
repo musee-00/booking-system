@@ -51,6 +51,8 @@ services:
         sync: false         # the sender address verified in Brevo, e.g. you@gmail.com
       - key: SMTP_HOST
         value: ""           # SMTP isn't used on Render
+      - key: PUBLIC_SITE_URL
+        value: https://north-street-booking.vercel.app  # for links in emails
       - key: SHOP_NAME
         value: North Street Studio
       - key: SHOP_ADDRESS

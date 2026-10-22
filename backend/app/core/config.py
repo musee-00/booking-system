@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     brevo_api_key: str = ""
     # Where customer replies go; defaults to SMTP_FROM_EMAIL.
     email_reply_to: str = ""
+    # The website's address, used for links in emails (e.g. "manage your booking").
+    public_site_url: str = "http://localhost:5173"
+    # Customers can cancel through their email link until this many hours before.
+    customer_cancel_cutoff_hours: int = 2
     shop_name: str = "North Street Studio"
     shop_address: str = "27 North Street, Gothenburg"
     # Comma-separated list of frontend URLs allowed to call the API from a browser,
@@ -52,6 +56,11 @@ class Settings(BaseSettings):
                 return "postgresql+psycopg://" + value[len(prefix):]
         return value
 
+    @field_validator("public_site_url")
+    @classmethod
+    def strip_trailing_slash(cls, value: str) -> str:
+        return value.rstrip("/")
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip().rstrip("/") for origin in self.cors_origins.split(",") if origin.strip()]
@@ -72,6 +81,8 @@ class Settings(BaseSettings):
             problems.append("ADMIN_PASSWORD must be changed from the default and be at least 12 characters")
         if any("localhost" in origin or "127.0.0.1" in origin for origin in self.cors_origin_list):
             problems.append("CORS_ORIGINS must list the deployed frontend URL, not localhost")
+        if "localhost" in self.public_site_url or "127.0.0.1" in self.public_site_url:
+            problems.append("PUBLIC_SITE_URL must be the deployed frontend URL, not localhost")
 
         if problems:
             raise RuntimeError("Unsafe production configuration: " + "; ".join(problems))
