@@ -12,6 +12,22 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
 
 ---
 
+## Screenshots
+
+**Staff calendar** (week view, light and dark mode)
+
+| Light | Dark |
+|---|---|
+| ![Admin calendar, light mode](docs/screenshots/admin-calendar-light.png) | ![Admin calendar, dark mode](docs/screenshots/admin-calendar-dark.png) |
+
+**Customer booking**: pick a time, get a confirmation, and receive an email with a secure link to cancel
+
+| Pick a time | Confirmed | Confirmation email |
+|---|---|---|
+| ![Pick a time](docs/screenshots/customer-times.png) | ![Booking confirmed](docs/screenshots/booking-confirmed.png) | ![Confirmation email](docs/screenshots/confirmation-email.png) |
+
+---
+
 ## Features
 
 **Customers**
@@ -21,7 +37,7 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
 - Cancel their own booking without logging in, through a secret link in the email (until 2 hours before), and get a cancellation email.
 
 **Owner** (like Setmore's "Admin" access level)
-- Calendar with week and day views and one colour per barber. Breaks, days off and time off are hatched (day view per barber; week view when nobody works). Past slots and closed days are greyed out; completed and cancelled appointments can be shown or hidden.
+- Calendar with week and day views and one colour per barber. Breaks, days off and time off are hatched (day view per barber; week view when nobody works). Past slots and closed days are greyed out; completed and cancelled appointments can be shown or hidden. A zoom control (− / +) makes the time slots larger or smaller, and the choice is remembered.
 - Create and cancel bookings from the calendar. A cancelled time becomes bookable again right away.
 - **Team & services** page:
   - add, edit, deactivate or reactivate barbers and services (deactivating keeps booking history);
@@ -234,7 +250,11 @@ The API and PostgreSQL run on **Render** (defined in [`render.yaml`](render.yaml
 
 ## Known limitations and next steps
 
-- **Not built yet:**
-  - letting customers move (not just cancel) their booking through the link
-  - a reminder email the day before
-  - automated frontend tests in the repository (the flows were verified with headless-browser scripts during development)
+The project is feature-complete for one shop (v1.0). Ideas for a next version:
+
+- **Customer features:** move (not just cancel) a booking through the link; a reminder email the day before (a scheduled job).
+- **Staff:** invite links so barbers choose their own password; optionally let barbers edit their own hours.
+- **Multi-shop (SaaS):** a `shops` table so many barbershops share one system, each with its own booking page, settings and opening hours, and strict tenant isolation (every query scoped to the user's shop).
+- **Mobile:** make the staff calendar an installable web app (PWA); later a native app using the same API.
+- **Testing:** automated frontend tests in the repository (the flows were verified with headless-browser scripts during development).
+- **Hosting:** the free Render database expires after 30 days and the free API sleeps when idle; a real deployment needs a paid or permanent database (see [DEPLOYMENT.md](DEPLOYMENT.md)).
