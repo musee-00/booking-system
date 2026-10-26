@@ -201,7 +201,10 @@ def test_replacing_working_hours_changes_availability(admin_headers) -> None:
     assert response.json()["conflicting_appointments"] == []
     assert hh_mm(availability(barber["id"], service["id"], day)) == ["10:00", "10:30", "14:00", "14:30"]
     # Every other weekday was removed by the replace.
-    other_day = future_business_day(days_ahead=8)
+    # The next day, or Friday if `day` is Saturday: always a different weekday the
+    # shop is open. (future_business_day(days_ahead=8) returned the same Tuesday
+    # when run on a Monday, because it skips Sunday and Monday.)
+    other_day = day + timedelta(days=1) if day.weekday() < 5 else day - timedelta(days=1)
     assert other_day.weekday() != day.weekday()
     assert availability(barber["id"], service["id"], other_day) == []
 
