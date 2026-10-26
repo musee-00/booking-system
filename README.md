@@ -6,7 +6,7 @@ A full-stack booking system for barbershops, built as a self-hosted alternative 
 
 **Live demo:** https://north-street-booking.vercel.app
 
-> Runs on free tiers: the first request after a quiet period can take up to a minute while the API wakes up. See [DEPLOYMENT.md](DEPLOYMENT.md).
+> Runs on free tiers: the first request after a quiet period can take up to a minute while the API wakes up. The free database expires on **19 November 2026**, after which bookings in the live demo stop working. The [screenshots](#screenshots) below show the app, and it runs locally with the steps in [Running locally](#running-locally). See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Stack:** Python · FastAPI · PostgreSQL · SQLAlchemy · Alembic · React · Vite · JWT · pytest
 
